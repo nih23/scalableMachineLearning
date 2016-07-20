@@ -58,6 +58,8 @@ private:
     boost::mpi::communicator _mpi_world_comm;
     boost::mutex mtx_;
     
+    bool __debugOutput;
+
     GM& _gm;
 
     std::pair<IndexType, IndexType> computePartitionBounds();
@@ -93,9 +95,19 @@ private:
     void computePhi(IndexType factorIndex, IndexType varIndex, uIterator begin, uIterator end);
     void updateState(IndexType varIndex);
 
-    int convertVariableIndexToMPIRank(IndexType variableIndex);
+    //int convertVariableIndexToMPIRank(IndexType variableIndex);
     void outputDualvars();
-    bool blackAndWhite(IndexType index);
+
+    int convertVariableIndexToMPIRank(IndexType variableIndex) {
+        int partitionSz = _gm.numberOfVariables() / _mpi_commSize;
+        return variableIndex / (partitionSz);
+    }
+
+
+    bool blackAndWhite(IndexType index)
+    {
+        return (((index%_lastColumnId)+(index/_lastColumnId))%2==0);      
+    }
 
     template<class Iterator>
     typename GM::ValueType 
@@ -121,12 +133,39 @@ private:
         return result;
     }
 
+    template<class Iterator>
+    typename GM::ValueType 
+    getFactorValueDBG(IndexType factorIndex, IndexType varIndex, Iterator it) {
+//        boost::lock_guard<boost::mutex> guard(mtx_);
+        //FactorType factor = _gm[factorIndex];
+        const typename GM::FactorType& factor = _gm[factorIndex];
+        ValueType result = 0;
+        if (factor.numberOfVariables()>1)
+        {
+            result = factor(it);
+            for (IndexType varId=0; varId<factor.numberOfVariables(); ++varId)
+            {
+                IndexType globalVarId = _gm[factorIndex].variableIndex(varId);
+                UnaryFactor uf = _dualVars[globalVarId][factorIndex];
+                result += uf[*(it+varId)]; // TODO: the access to the unary factors seems to be broken.
+                std::cout << "[" << globalVarId << "(" << convertVariableIndexToMPIRank(globalVarId) << "," << blackAndWhite(globalVarId) << ")," << uf[*(it+varId)] << "], ";
+            }
+            std::cout << std::endl;
+        } else {
+            //result = getVariableValue(varIndex,*it);
+            result = getVariableValue(factor.variableIndex(0),*it);
+        }
+
+        return result;
+    }
+
     //g^{phi}_{tt} - switched to g_{t}^{phi}
     typename GM::ValueType 
     getVariableValue(IndexType variableIndex, LabelType label)
     {
 //        boost::lock_guard<boost::mutex> guard(mtx_);
         ValueType result = 0.;
+        ValueType tmpRes = 0.;
         for (IndexType i=0; i<_gm.numberOfFactors(variableIndex); ++i)
         {
             IndexType factorIndex = _gm.factorOfVariable(variableIndex,i);
@@ -135,14 +174,15 @@ private:
                 result += _gm[factorIndex](&label);
                 continue;
             }
-
-            if(variableIndex == 14393)
-                std::cout << " *** gm " << result << " " << "(" << _mpi_myRank << ")";            
-
+          
+            tmpRes = result;
             result -= _dualVars[variableIndex][factorIndex][label]; //switched to plus
 
-            if(variableIndex == 14393)
-                std::cout << " dual " << result << "(" << _mpi_myRank << ")" << " *** ";
+        }
+
+        if(variableIndex == 14393 && __debugOutput && label == 3) {
+            //std::cout << " => label " << label << " gm " << tmpRes << " dual " << result << "(" << _mpi_myRank << ")" << " *** ";
+        //    std::cout << std::endl << " getVarValue: " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
         }
 
         return result;

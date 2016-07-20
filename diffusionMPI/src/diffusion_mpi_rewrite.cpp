@@ -103,11 +103,6 @@ template<class GM, class ACC>
 	//std::cout << "LCid: " << _lastColumnId << std::endl;
 }
 
-template<class GM, class ACC>
-bool Diffusion_MPI_Rewrite<GM,ACC>::blackAndWhite(IndexType index)
-{
-	return (((index%_lastColumnId)+(index/_lastColumnId))%2==0);	  
-}
 
 template<class GM, class ACC>
 const GM& Diffusion_MPI_Rewrite<GM,ACC>::graphicalModel() const
@@ -142,7 +137,6 @@ template<class GM, class ACC>
  		if(_mpi_myRank == 0)
  			std::cout << "Diffusion Iteration " << i << std::endl;
  		#endif
-
 		// black
 		//#ifdef DEBUGSEND
 		if(_mpi_myRank == 0)
@@ -150,6 +144,7 @@ template<class GM, class ACC>
 		//#endif
 		MPI_Barrier(MPI_COMM_WORLD);
 		this->diffusionIteration(true);
+
 		MPI_Barrier(MPI_COMM_WORLD);
 		this->sendMPIUpdatesOfDualVariables(true);
 		this->receiveMPIUpdatesOfDualVariablesBOOST(true);
@@ -163,12 +158,14 @@ template<class GM, class ACC>
 		if(_mpi_myRank == 0)
 			std::cout << "2. update dual variables (white fields) R" << _mpi_myRank << std::endl;//}
 		//#endif
+		//    std::cout << " dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
 		MPI_Barrier(MPI_COMM_WORLD);
-		this->diffusionIteration(false);    
+		this->diffusionIteration(false); 
+		//    std::cout<< " dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+   
 		MPI_Barrier(MPI_COMM_WORLD);
 		this->sendMPIUpdatesOfDualVariables(false);
-		this->receiveMPIUpdatesOfDualVariablesBOOST(false);
-		
+		this->receiveMPIUpdatesOfDualVariablesBOOST(false);		
 
 		//std::cout << "2.5 receiving updates R" << _mpi_myRank << std::endl;
 		//this->receiveMPIUpdatesOfDualVariables(false);
@@ -260,12 +257,6 @@ typename GM::ValueType Diffusion_MPI_Rewrite<GM,ACC>::computeEnergySerial() {
 	return _gm.evaluate(_states.begin());
 }
 
-template<class GM, class ACC>
-int Diffusion_MPI_Rewrite<GM,ACC>::convertVariableIndexToMPIRank(IndexType variableIndex) {
-	int partitionSz = _gm.numberOfVariables() / _mpi_commSize;
-	return variableIndex / (partitionSz);
-}
-
 /*
 template<class GM, class ACC>
 void Diffusion_MPI_Rewrite<GM,ACC>::outputDualvars() {
@@ -291,6 +282,7 @@ void Diffusion_MPI_Rewrite<GM,ACC>::outputDualvars() {
 template<class GM, class ACC>
 void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 {  
+
  	std::pair<IndexType, IndexType> partitionBds = this->computePartitionBounds(); 
  	//std::cout << "** " << _mpi_myRank << " computing [" << partitionBds.first << "," << partitionBds.second-1 << "] black: " << isBlack << " (" << _gm.numberOfVariables() << ")" << std::endl;
 	for (IndexType myVariableIndex=partitionBds.first; myVariableIndex<partitionBds.second; myVariableIndex++) //or i<gm_.numberOfVariables()
@@ -318,7 +310,19 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 			 UnaryFactor& uf = _dualVars[myVariableIndex][factIdx];
 			 uIterator begin = &uf[0];
 			 std::pair<uIterator, uIterator> labelsOfDualVariable = std::make_pair(begin, begin+uf.size());
+			 if(factIdx == 41644) {
+		    	std::cout << " DIFF_ITER pre PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+				std::vector<LabelType> labels_test(2);
+				labels_test[0] = 3;
+				labels_test[1] = 3;
+		    	std::cout << " DIFF_ITER pre TEST: " << this->getFactorValueDBG(41644,14393, labels_test.begin()) << std::endl;
+			}
 			 this->computePhi(factIdx,myVariableIndex,labelsOfDualVariable.first,labelsOfDualVariable.second);
+
+			if(factIdx == 41644)
+		    	std::cout << " DIFF_ITER post PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+
+
 		}
 	}
 }
@@ -340,9 +344,10 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 	std::vector<LabelType> label(1);
 	label[0] = 0;
 
-	if(factorIndex == 41645 && varIndex == 14393)
-		std::cout << "PHI " << varIndex << " " << factorIndex << " =>";
+	//if(factorIndex == 41645 && varIndex == 14393)
+	//	std::cout << "PHI " << varIndex << " " << factorIndex << " =>";
 
+// update dual variable for each label
 	for (auto it = begin; it!= end; ++it)
 	{
 		labels[secondLabelId]=0;
@@ -353,14 +358,30 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 			labels[secondLabelId] = i;
 			auto temp = this->getFactorValue(factorIndex,varIndex, labels.begin());
 
+			if(factorIndex == 41644 && varIndex == 14393 && i==3) {
+				std::vector<LabelType> labels_test(2);
+				labels_test[0] = 3;
+				labels_test[1] = 3;
+	//			std::cout << "test: " << this->getFactorValue(factorIndex,varIndex, labels_test.begin()) << std::endl;
+	//			std::cout << *it << " temp " << temp << "@" << labels[0] << "," << labels[1] << std::endl;
+			}
+
 			if ( temp < mini )
 				mini = temp;
 		}
 
-		if(factorIndex == 41645 && varIndex == 14393)
+		/*if(factorIndex == 41645 && varIndex == 14393) {
+			__debugOutput = true;
 			std::cout << " " << this->getVariableValue(varIndex, label[0]);
+			__debugOutput = false;
+		}*/
 
 		*it -= mini;
+
+	//		if(factorIndex == 41644 && varIndex == 14393)
+	//	    	std::cout << " *** " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")"  << std::endl;
+
+
 		++labels[labelId];
 	// getVariableValue yield wrong data
 
