@@ -58,7 +58,6 @@ template<class GM, class ACC>
 		gotFIDual[factorIndex] = uf;
 
 		_dualVars[leftVar] = gotFIDual;
-
 		if(noVariables > 1) {
 			IndexType rightVar = factor.variableIndex(1);
 			UnaryFactor uf2;
@@ -295,7 +294,6 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 		for (auto factorId=0;factorId<_gm.numberOfFactors(myVariableIndex);factorId++)
 		{
 			IndexType factIdx = _gm.factorOfVariable(myVariableIndex,factorId);
-
 			// only care about pairwise potentials
 			if (_gm[factIdx].numberOfVariables() == 1)
 			{
@@ -310,18 +308,25 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 			 UnaryFactor& uf = _dualVars[myVariableIndex][factIdx];
 			 uIterator begin = &uf[0];
 			 std::pair<uIterator, uIterator> labelsOfDualVariable = std::make_pair(begin, begin+uf.size());
+
+
+
 			 if(factIdx == 41644) {
-		    	std::cout << " DIFF_ITER pre PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+			 	std::cout << " DIFF_ITER @ " << myVariableIndex << " " << factIdx << std::endl;
+		    	std::cout << " DIFF_ITER pre PHI dualVar 14273 41644 3 " << _dualVars[14273][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+		    //	std::cout << " DIFF_ITER pre PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
 				std::vector<LabelType> labels_test(2);
 				labels_test[0] = 3;
 				labels_test[1] = 3;
-		    	std::cout << " DIFF_ITER pre TEST: " << this->getFactorValueDBG(41644,14393, labels_test.begin()) << std::endl;
+		    	std::cout << " DIFF_ITER pre PHI gFVDBG: " << this->getFactorValueDBG(41644,14273, labels_test.begin()) << std::endl;
 			}
 			 this->computePhi(factIdx,myVariableIndex,labelsOfDualVariable.first,labelsOfDualVariable.second);
 
-			if(factIdx == 41644)
-		    	std::cout << " DIFF_ITER post PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+			if(factIdx == 41644) {
+		    	std::cout << " DIFF_ITER post PHI dualVar 14273 41644 3 " << _dualVars[14273][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+		    //	std::cout << " DIFF_ITER post PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
 
+			}
 
 		}
 	}
@@ -358,12 +363,11 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 			labels[secondLabelId] = i;
 			auto temp = this->getFactorValue(factorIndex,varIndex, labels.begin());
 
-			if(factorIndex == 41644 && varIndex == 14393 && i==3) {
+			if(varIndex == 14273 && *(++labels.begin()) == 3 && *(labels.begin()) == 3) {
 				std::vector<LabelType> labels_test(2);
 				labels_test[0] = 3;
 				labels_test[1] = 3;
-	//			std::cout << "test: " << this->getFactorValue(factorIndex,varIndex, labels_test.begin()) << std::endl;
-	//			std::cout << *it << " temp " << temp << "@" << labels[0] << "," << labels[1] << std::endl;
+				std::cout << "INSIDE PHI FAC (r" << _mpi_myRank << ") " << factorIndex << " " << varIndex << " " << *(labels.begin()) << "-" << *(++labels.begin()) << " => " << temp << std::endl;
 			}
 
 			if ( temp < mini )
@@ -386,6 +390,14 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 	// getVariableValue yield wrong data
 
 		*it += _weights[varIndex] * this->getVariableValue(varIndex, label[0]);
+
+	if(varIndex == 14273 && label[0] == 3) {
+		std::vector<LabelType> labels_test(2);
+		labels_test[0] = 3;
+		labels_test[1] = 3;
+		std::cout << "INSIDE PHI VAR (r" << _mpi_myRank << ") " << factorIndex << " " << varIndex << " " << label[0] << " => " << this->getVariableValue(varIndex, label[0]) << std::endl;
+		//std::cout << *it << " temp " << temp << "@" << labels[0] << "," << labels[1] << std::endl;
+	}
 
 		++label[0];
 	}

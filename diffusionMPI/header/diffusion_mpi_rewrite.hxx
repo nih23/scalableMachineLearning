@@ -20,6 +20,9 @@
 #include <unordered_map>
 #include "common.h"
 
+#define DEBUGVAR 14273
+#define DEBUGFAC 41644
+
 template<class GM, class ACC>
 class Diffusion_MPI_Rewrite : public opengm::Inference<GM, ACC>
 {
@@ -138,22 +141,26 @@ private:
     getFactorValueDBG(IndexType factorIndex, IndexType varIndex, Iterator it) {
 //        boost::lock_guard<boost::mutex> guard(mtx_);
         //FactorType factor = _gm[factorIndex];
+        std::cout << std::endl << "getFactorValue DEBUG " << varIndex << " " << factorIndex << " " << *it << std::endl;
         const typename GM::FactorType& factor = _gm[factorIndex];
         ValueType result = 0;
         if (factor.numberOfVariables()>1)
         {
             result = factor(it);
+            std::cout << "{" << varIndex << "(r" << convertVariableIndexToMPIRank(varIndex) << ",bw" << blackAndWhite(varIndex) << ")," << result << "}, ";
             for (IndexType varId=0; varId<factor.numberOfVariables(); ++varId)
             {
                 IndexType globalVarId = _gm[factorIndex].variableIndex(varId);
                 UnaryFactor uf = _dualVars[globalVarId][factorIndex];
+                std::cout << "!" << factorIndex << " " << globalVarId << "(r" << convertVariableIndexToMPIRank(globalVarId) << ",bw" << blackAndWhite(globalVarId) << ")," << *(it+varId) << "!, ";
                 result += uf[*(it+varId)]; // TODO: the access to the unary factors seems to be broken.
-                std::cout << "[" << globalVarId << "(" << convertVariableIndexToMPIRank(globalVarId) << "," << blackAndWhite(globalVarId) << ")," << uf[*(it+varId)] << "], ";
+                std::cout << "[" << factorIndex << " " << globalVarId << "(r" << convertVariableIndexToMPIRank(globalVarId) << ",bw" << blackAndWhite(globalVarId) << ")," << uf[*(it+varId)] << "], ";
             }
             std::cout << std::endl;
         } else {
             //result = getVariableValue(varIndex,*it);
             result = getVariableValue(factor.variableIndex(0),*it);
+            std::cout << "unary [" << varIndex << "(r" << convertVariableIndexToMPIRank(varIndex) << ",bw" << blackAndWhite(varIndex) << ")," << result << "], ";
         }
 
         return result;
@@ -180,9 +187,9 @@ private:
 
         }
 
-        if(variableIndex == 14393 && __debugOutput && label == 3) {
+        if(variableIndex == DEBUGVAR && label == 3) {
             //std::cout << " => label " << label << " gm " << tmpRes << " dual " << result << "(" << _mpi_myRank << ")" << " *** ";
-        //    std::cout << std::endl << " getVarValue: " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
+            std::cout << std::endl << " getVarValue: " << _dualVars[DEBUGVAR][DEBUGFAC][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
         }
 
         return result;

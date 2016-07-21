@@ -14,7 +14,7 @@ find_package(OpenGM)
 
 #set(OPENGM_PATH /Users/nico/Code/opengm)
 #set(OPENGM_PATH_BUILD ${OPENGM_PATH}/build)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -std=gnu++0x ${OpenMP_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++0x ${OpenMP_CXX_FLAGS}")
 set(CMAKE_CXX_COMPILE_FLAGS ${CMAKE_CXX_COMPILE_FLAGS})
 set(CMAKE_CXX_LINK_FLAGS ${CMAKE_CXX_LINK_FLAGS})
 
