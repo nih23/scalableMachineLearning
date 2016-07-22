@@ -20,9 +20,6 @@
 #include <unordered_map>
 #include "common.h"
 
-#define DEBUGVAR 14273
-#define DEBUGFAC 41644
-
 template<class GM, class ACC>
 class Diffusion_MPI_Rewrite : public opengm::Inference<GM, ACC>
 {
@@ -58,10 +55,7 @@ public:
     int _mpi_commSize;
 
 private:
-    boost::mpi::communicator _mpi_world_comm;
-    boost::mutex mtx_;
-    
-    bool __debugOutput;
+    boost::mpi::communicator _mpi_world_comm;    
 
     GM& _gm;
 
@@ -115,8 +109,6 @@ private:
     template<class Iterator>
     typename GM::ValueType 
     getFactorValue(IndexType factorIndex, IndexType varIndex, Iterator it) {
-//        boost::lock_guard<boost::mutex> guard(mtx_);
-        //FactorType factor = _gm[factorIndex];
         const typename GM::FactorType& factor = _gm[factorIndex];
         ValueType result = 0;
         if (factor.numberOfVariables()>1)
@@ -126,41 +118,10 @@ private:
             {
                 IndexType globalVarId = _gm[factorIndex].variableIndex(varId);
                 UnaryFactor uf = _dualVars[globalVarId][factorIndex];
-                result += uf[*(it+varId)]; // TODO: the access to the unary factors seems to be broken.
+                result += uf[*(it+varId)];
             }
         } else {
-            //result = getVariableValue(varIndex,*it);
             result = getVariableValue(factor.variableIndex(0),*it);
-        }
-
-        return result;
-    }
-
-    template<class Iterator>
-    typename GM::ValueType 
-    getFactorValueDBG(IndexType factorIndex, IndexType varIndex, Iterator it) {
-//        boost::lock_guard<boost::mutex> guard(mtx_);
-        //FactorType factor = _gm[factorIndex];
-        std::cout << std::endl << "getFactorValue DEBUG " << varIndex << " " << factorIndex << " " << *it << std::endl;
-        const typename GM::FactorType& factor = _gm[factorIndex];
-        ValueType result = 0;
-        if (factor.numberOfVariables()>1)
-        {
-            result = factor(it);
-            std::cout << "{" << varIndex << "(r" << convertVariableIndexToMPIRank(varIndex) << ",bw" << blackAndWhite(varIndex) << ")," << result << "}, ";
-            for (IndexType varId=0; varId<factor.numberOfVariables(); ++varId)
-            {
-                IndexType globalVarId = _gm[factorIndex].variableIndex(varId);
-                UnaryFactor uf = _dualVars[globalVarId][factorIndex];
-                std::cout << "!" << factorIndex << " " << globalVarId << "(r" << convertVariableIndexToMPIRank(globalVarId) << ",bw" << blackAndWhite(globalVarId) << ")," << *(it+varId) << "!, ";
-                result += uf[*(it+varId)]; // TODO: the access to the unary factors seems to be broken.
-                std::cout << "[" << factorIndex << " " << globalVarId << "(r" << convertVariableIndexToMPIRank(globalVarId) << ",bw" << blackAndWhite(globalVarId) << ")," << uf[*(it+varId)] << "], ";
-            }
-            std::cout << std::endl;
-        } else {
-            //result = getVariableValue(varIndex,*it);
-            result = getVariableValue(factor.variableIndex(0),*it);
-            std::cout << "unary [" << varIndex << "(r" << convertVariableIndexToMPIRank(varIndex) << ",bw" << blackAndWhite(varIndex) << ")," << result << "], ";
         }
 
         return result;
@@ -170,7 +131,6 @@ private:
     typename GM::ValueType 
     getVariableValue(IndexType variableIndex, LabelType label)
     {
-//        boost::lock_guard<boost::mutex> guard(mtx_);
         ValueType result = 0.;
         ValueType tmpRes = 0.;
         for (IndexType i=0; i<_gm.numberOfFactors(variableIndex); ++i)
@@ -186,12 +146,6 @@ private:
             result -= _dualVars[variableIndex][factorIndex][label]; //switched to plus
 
         }
-
-        if(variableIndex == DEBUGVAR && label == 3) {
-            //std::cout << " => label " << label << " gm " << tmpRes << " dual " << result << "(" << _mpi_myRank << ")" << " *** ";
-            std::cout << std::endl << " getVarValue: " << _dualVars[DEBUGVAR][DEBUGFAC][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-        }
-
         return result;
     }
 };

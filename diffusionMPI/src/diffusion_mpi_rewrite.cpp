@@ -1,6 +1,5 @@
 #include "../header/diffusion_mpi_rewrite.hxx"
 //#include "../header/diffusionMPI.hxx"
-
 //#include "parallelDiffusion.cpp"
 //#include "diffusionMPI.cpp"
 #include <opengm/graphicalmodel/graphicalmodel.hxx>
@@ -8,8 +7,10 @@
 #include <opengm/graphicalmodel/space/simplediscretespace.hxx>
 #include <iostream>
 
+#include <mpi.h>
+
 #define USEMPI
-//#define DEBUGSEND
+//#define VERBOSE
 #ifdef USEMPI
 	#include <mpi.h>
 #endif
@@ -30,11 +31,9 @@ template<class GM, class ACC>
  	_name = "Diffusion MPI";
  	_griddx = nx;
  	_griddy = ny;
-
-#ifdef USEMPI
  	MPI_Comm_rank(MPI_COMM_WORLD, &_mpi_myRank);
  	MPI_Comm_size(MPI_COMM_WORLD, &_mpi_commSize);
-#endif
+
 
 	// project primal factor space into variable space for easy distribution by mpi
  	for (IndexType factorIndex=0; factorIndex<_gm.numberOfFactors(); ++factorIndex)
@@ -95,7 +94,7 @@ template<class GM, class ACC>
 	{
 		if (_gm.numberOfFactors(i) == numberFac)
 		{
-			_lastColumnId = i;
+			_lastColumnId = i+1;
 			break;
 		}
 	}
@@ -132,49 +131,30 @@ template<class GM, class ACC>
  	for(size_t i=0;i<this->_maxIterations;++i)
  	{
  		auto before = std::time(nullptr);
- 		#ifdef DEBUGSEND
- 		if(_mpi_myRank == 0)
- 			std::cout << "Diffusion Iteration " << i << std::endl;
- 		#endif
-		// black
-		//#ifdef DEBUGSEND
+		
+
+		// black fields
+		#ifdef VERBOSE
 		if(_mpi_myRank == 0)
 			std::cout << "1. update dual variables (black fields) R" << _mpi_myRank << std::endl;//}
-		//#endif
-		MPI_Barrier(MPI_COMM_WORLD);
+		#endif
 		this->diffusionIteration(true);
-
-		MPI_Barrier(MPI_COMM_WORLD);
 		this->sendMPIUpdatesOfDualVariables(true);
 		this->receiveMPIUpdatesOfDualVariablesBOOST(true);
-		
-		//std::cout << "1.5 receiving updates R" << _mpi_myRank << std::endl;
-		//this->receiveMPIUpdatesOfDualVariables(true);
 
-		//std::cout << _mpi_myRank << " done!" << std::endl;
-		//MPI_Barrier(MPI_COMM_WORLD);
-		//#ifdef DEBUGSEND
+
+		// white fields		
+		#ifdef VERBOSE
 		if(_mpi_myRank == 0)
 			std::cout << "2. update dual variables (white fields) R" << _mpi_myRank << std::endl;//}
-		//#endif
-		//    std::cout << " dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-		MPI_Barrier(MPI_COMM_WORLD);
+		#endif
 		this->diffusionIteration(false); 
-		//    std::cout<< " dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-   
-		MPI_Barrier(MPI_COMM_WORLD);
 		this->sendMPIUpdatesOfDualVariables(false);
 		this->receiveMPIUpdatesOfDualVariablesBOOST(false);		
 
-		//std::cout << "2.5 receiving updates R" << _mpi_myRank << std::endl;
-		//this->receiveMPIUpdatesOfDualVariables(false);
-		MPI_Barrier(MPI_COMM_WORLD);
-
-		// MPI_Barrier(MPI_COMM_WORLD);
-
 		if(_mpi_myRank == 0)
 		{
-			#ifdef DEBUGSEND
+			#ifdef VERBOSE
 			if(_mpi_myRank == 0)
 				std::cout << "3. update state vector R" << _mpi_myRank << std::endl;//} 
 			#endif
@@ -182,20 +162,15 @@ template<class GM, class ACC>
 			auto now = std::time(nullptr);
 
 			_bound = this->computeBound(); // optimize this function as well! since it slows down computational time remarkedly
-			//MPI_Barrier(MPI_COMM_WORLD);
 			now = std::time(nullptr);
 
 			//_energy = this->computeEnergy();
 			_energy = this->computeEnergySerial();
-			//MPI_Barrier(MPI_COMM_WORLD);
-			//_energy = _gm.evaluate(_states.begin());
 			auto oldBound = _bound;
 			if(_mpi_myRank == 0) {
-				//	  std::cout << "dt (bound) " << (std::time(nullptr)-now) << std::endl;
 				std::cout << i << " energy " << _energy << " bound: " << _bound << std::endl;
 			}
 		}
-		// MPI_Barrier(MPI_COMM_WORLD);      
 	}
 	return opengm::NORMAL;
 }
@@ -205,25 +180,17 @@ typename GM::ValueType Diffusion_MPI_Rewrite<GM,ACC>::computeEnergy() {
 	int sz;
 	std::pair<IndexType, IndexType> bds;
 
-	// this->updateAllStates();
-
 	// send local state update to master for energy computation
-	// MPI_UINT64_T
 	if(_mpi_myRank > 0) {
 		bds = this->computePartitionBounds();
 		IndexType* begin = &(_states[bds.first]); // unsigned long!
 		sz = bds.second - bds.first + 1;
 		MPI_Request myreq;
-#ifdef DEBUGSEND
-		//std::cout << "rank " << _mpi_myRank << " sending " << sz << " states to master " << " sample: " << _states[bds.first] << ";" << _states[bds.second-1] << std::endl;
-#endif
-		//      std::cout << _states[bds.first + 1] << " " << _states[bds.first + 2] << " " << _states[bds.first + 3] << " -> ";
-
 		MPI_Send(begin, sz, MPI_UINT64_T, 0, 42+_mpi_myRank, MPI_COMM_WORLD); //changed from MPI_UNIT64_T (13.7.2016)
 		return 0;
 	}
 
-#ifdef DEBUGSEND
+#ifdef VERBOSE
 	std::cout << "[d] receiving state updates from children." << std::endl;
 #endif
 
@@ -233,19 +200,12 @@ typename GM::ValueType Diffusion_MPI_Rewrite<GM,ACC>::computeEnergy() {
 		sz = bds.second - bds.first + 1;
 		std::vector<IndexType> rcvBuffer;
 		rcvBuffer.resize(sz);
-
-		//   MPI_Recv(&_states[bds.first], sz, MPI_UINT64_T, i, 42, MPI_COMM_WORLD, NULL);
 		MPI_Recv(&rcvBuffer[0], sz, MPI_UINT64_T, i, 42+i, MPI_COMM_WORLD, &status);
 
 		for(int k = 0; k < sz; k++)
 		{
 			_states[bds.first+k] = rcvBuffer[k];
 		}
-
-#ifdef DEBUGSEND
-		//std::cout << bds.first << ";" << bds.second-1 << ";" << _gm.numberOfVariables() << "[d] received data from child " << i << " sample: " << _states[bds.first] << ";" << _states[bds.second-1] << std::endl;
-#endif
-		//    std::cout << _states[bds.first + 1] << " " << _states[bds.first + 2] << " " << _states[bds.first + 3] << std::endl;
 	}
 
 	return _gm.evaluate(_states.begin());
@@ -257,25 +217,6 @@ typename GM::ValueType Diffusion_MPI_Rewrite<GM,ACC>::computeEnergySerial() {
 }
 
 /*
-template<class GM, class ACC>
-void Diffusion_MPI_Rewrite<GM,ACC>::outputDualvars() {
-
-	int noVars = _gm.numberOfVariables();
-	for(int i = 0; i < noVars; i++) {
-		VecFactorIndices factorsOfVar = _variableToFactors[i];
-		for(IndexType fi : factorsOfVar) {
-			std::cout << i << ";" << fi << " ; ";
-			UnaryFactor uf = _dualVars[i][fi];
-			for(ValueType uf_value : uf) {
-				std::cout << uf_value << " ; ";
-			}
-			std::cout << std::endl;
-		}
-
-	}
-  }*/
-
-/*
  * do one iteration of the diffusion algorithm
  */
 template<class GM, class ACC>
@@ -283,9 +224,7 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 {  
 
  	std::pair<IndexType, IndexType> partitionBds = this->computePartitionBounds(); 
- 	//std::cout << "** " << _mpi_myRank << " computing [" << partitionBds.first << "," << partitionBds.second-1 << "] black: " << isBlack << " (" << _gm.numberOfVariables() << ")" << std::endl;
-	for (IndexType myVariableIndex=partitionBds.first; myVariableIndex<partitionBds.second; myVariableIndex++) //or i<gm_.numberOfVariables()
-	//for (IndexType myVariableIndex=0; myVariableIndex < _gm.numberOfVariables(); myVariableIndex++)
+	for (IndexType myVariableIndex=partitionBds.first; myVariableIndex<partitionBds.second; myVariableIndex++)
 	{
 		if(this->blackAndWhite(myVariableIndex) != isBlack) {
 			continue;
@@ -293,8 +232,8 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 
 		for (auto factorId=0;factorId<_gm.numberOfFactors(myVariableIndex);factorId++)
 		{
-			IndexType factIdx = _gm.factorOfVariable(myVariableIndex,factorId);
 			// only care about pairwise potentials
+			IndexType factIdx = _gm.factorOfVariable(myVariableIndex,factorId);
 			if (_gm[factIdx].numberOfVariables() == 1)
 			{
 				continue;
@@ -308,26 +247,7 @@ void Diffusion_MPI_Rewrite<GM,ACC>::diffusionIteration(bool isBlack)
 			 UnaryFactor& uf = _dualVars[myVariableIndex][factIdx];
 			 uIterator begin = &uf[0];
 			 std::pair<uIterator, uIterator> labelsOfDualVariable = std::make_pair(begin, begin+uf.size());
-
-
-
-			 if(factIdx == 41644) {
-			 	std::cout << " DIFF_ITER @ " << myVariableIndex << " " << factIdx << std::endl;
-		    	std::cout << " DIFF_ITER pre PHI dualVar 14273 41644 3 " << _dualVars[14273][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-		    //	std::cout << " DIFF_ITER pre PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-				std::vector<LabelType> labels_test(2);
-				labels_test[0] = 3;
-				labels_test[1] = 3;
-		    	std::cout << " DIFF_ITER pre PHI gFVDBG: " << this->getFactorValueDBG(41644,14273, labels_test.begin()) << std::endl;
-			}
 			 this->computePhi(factIdx,myVariableIndex,labelsOfDualVariable.first,labelsOfDualVariable.second);
-
-			if(factIdx == 41644) {
-		    	std::cout << " DIFF_ITER post PHI dualVar 14273 41644 3 " << _dualVars[14273][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-		    //	std::cout << " DIFF_ITER post PHI dualVar 14393 41644 3 " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")" << " *** " << std::endl;
-
-			}
-
 		}
 	}
 }
@@ -349,10 +269,7 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 	std::vector<LabelType> label(1);
 	label[0] = 0;
 
-	//if(factorIndex == 41645 && varIndex == 14393)
-	//	std::cout << "PHI " << varIndex << " " << factorIndex << " =>";
-
-// update dual variable for each label
+	// update dual variable for each label
 	for (auto it = begin; it!= end; ++it)
 	{
 		labels[secondLabelId]=0;
@@ -362,50 +279,14 @@ void Diffusion_MPI_Rewrite<GM,ACC>::computePhi(IndexType factorIndex, IndexType 
 		{
 			labels[secondLabelId] = i;
 			auto temp = this->getFactorValue(factorIndex,varIndex, labels.begin());
-
-			if(varIndex == 14273 && *(++labels.begin()) == 3 && *(labels.begin()) == 3) {
-				std::vector<LabelType> labels_test(2);
-				labels_test[0] = 3;
-				labels_test[1] = 3;
-				std::cout << "INSIDE PHI FAC (r" << _mpi_myRank << ") " << factorIndex << " " << varIndex << " " << *(labels.begin()) << "-" << *(++labels.begin()) << " => " << temp << std::endl;
-			}
-
 			if ( temp < mini )
 				mini = temp;
 		}
-
-		/*if(factorIndex == 41645 && varIndex == 14393) {
-			__debugOutput = true;
-			std::cout << " " << this->getVariableValue(varIndex, label[0]);
-			__debugOutput = false;
-		}*/
-
 		*it -= mini;
-
-	//		if(factorIndex == 41644 && varIndex == 14393)
-	//	    	std::cout << " *** " << _dualVars[14393][41644][3] << "(" << _mpi_myRank << ")"  << std::endl;
-
-
 		++labels[labelId];
-	// getVariableValue yield wrong data
-
 		*it += _weights[varIndex] * this->getVariableValue(varIndex, label[0]);
-
-	if(varIndex == 14273 && label[0] == 3) {
-		std::vector<LabelType> labels_test(2);
-		labels_test[0] = 3;
-		labels_test[1] = 3;
-		std::cout << "INSIDE PHI VAR (r" << _mpi_myRank << ") " << factorIndex << " " << varIndex << " " << label[0] << " => " << this->getVariableValue(varIndex, label[0]) << std::endl;
-		//std::cout << *it << " temp " << temp << "@" << labels[0] << "," << labels[1] << std::endl;
-	}
-
 		++label[0];
 	}
-	if(factorIndex == 41645 && varIndex == 14393)
-		std::cout << std::endl;
-
-	//if(varIndex == 4800)
-	//  std::cout << "   !" << varIndex << "@" << _mpi_myRank << ";" << factorIndex << ";" << *begin << ";" << *(begin+3) << std::endl;
 }
 
 template<class GM, class ACC>
@@ -430,7 +311,6 @@ template<class GM, class ACC>
 					}
 
 					std::vector<ValueType> sndBffr = _dualVars[myVariableIndex][factIdx];
-
 					_mpi_world_comm.send(i,factIdx,sndBffr);
 				}
 
@@ -556,8 +436,6 @@ template<class GM, class ACC>
 	}
 }
 
-
-//TODO: readonly for single variable on _dualvars.
 //Compute minmal g_{t}^{phi} as current labeling
 template<class GM, class ACC>
 void Diffusion_MPI_Rewrite<GM, ACC>::updateState(IndexType varIndex)
@@ -581,36 +459,20 @@ void Diffusion_MPI_Rewrite<GM, ACC>::updateState(IndexType varIndex)
 template<class GM, class ACC>
 std::pair<typename GM::IndexType, typename GM::IndexType> Diffusion_MPI_Rewrite<GM, ACC>::computePartitionBounds()
 {
-	int noVariables = _gm.numberOfVariables();
-#ifndef USEMPI
-	return std::pair<IndexType, IndexType>(0,noVariables);
-#endif
-	int partitionSz = noVariables / _mpi_commSize;
-	IndexType startIdx = _mpi_myRank * partitionSz;
-	IndexType endIdx = (_mpi_myRank+1) * partitionSz;
-	if(_mpi_myRank == (_mpi_commSize-1)) { // last index gets potentially smaller chunk
-		endIdx = noVariables;
-	}
-#ifdef DEBUGOUTPUT
-	std::cout << "Partition sizes " << _mpi_commSize << " Global Size: " << noVariables << " Partition Size: " << partitionSz << " -> " << " (" << startIdx << "," << endIdx << ")" << std::endl;
-#endif
-	return std::pair<IndexType, IndexType>(startIdx, endIdx);
+	return computePartitionBounds(_mpi_myRank);
 }
 
 template<class GM, class ACC>
 std::pair<typename GM::IndexType, typename GM::IndexType> Diffusion_MPI_Rewrite<GM, ACC>::computePartitionBounds(int rank)
 {
 	int noVariables = _gm.numberOfVariables();
-#ifndef USEMPI
-	return std::pair<IndexType, IndexType>(0,noVariables);
-#endif
 	int partitionSz = noVariables / _mpi_commSize;
 	IndexType startIdx = rank * partitionSz;
 	IndexType endIdx = (rank+1) * partitionSz;
 	if(rank == (_mpi_commSize-1)) { // last index gets potentially smaller chunk
 		endIdx = noVariables;
 	}
-#ifdef DEBUGOUTPUT
+#ifdef VERBOSE
 	std::cout << "[given rank] Partition sizes " << _mpi_commSize << " Global Size: " << noVariables << " Partition Size: " << partitionSz << " -> " << " (" << startIdx << "," << endIdx << ")" << std::endl;
 #endif
 	return std::pair<IndexType, IndexType>(startIdx, endIdx);
@@ -760,50 +622,27 @@ template<class GM, class ACC>
 
 	std::vector<LabelType> labeling(gm.numberOfVariables());
 
+	// initialize communication framework
 	int mpi_myRank = 0;
-#ifdef USEMPI
 	MPI_Init(NULL, NULL);
 	MPI_Comm_rank(MPI_COMM_WORLD, &mpi_myRank);
-#endif
 	Diffusion_MPI_Rewrite<Model,opengm::Adder> mpiDiffusion(gm, noIterations, eps, nx, ny);
-	//ParallelDiffusion<Model,opengm::Adder> mpiDiffusion(gm, noIterations, eps, nx, ny);
 	if(mpi_myRank == 0) {
 		std::cout << "** Diffusion MPI" << std::endl;
 	}
+
+	// infer labelling
 	mpiDiffusion.infer();
 	mpiDiffusion.arg(labeling);
 
-
-#ifdef USEMPI
+	// shutdown mpi
 	MPI_Barrier(MPI_COMM_WORLD);
 	MPI_Finalize();
-#endif
 
-	// std::cout << std::endl << std::endl;
-	/*
-	 * 
-	 * old implementation
-	 */
 	 if(mpi_myRank > 0) {
 	 	return 0; 
 	 }
 	 std::cout << "------------------------------------------------" << std::endl << "------------------------------------------------" << std::endl;
-/*	 Model gm2;
-	 opengm::hdf5::load(gm2, argv[1], "gm");
-	 std::vector<LabelType> labeling2(gm.numberOfVariables());
 
-	 ReparametrisationStorageMPI<Model> repaStorage(gm2);
-	 DiffusionMPI<Model,opengm::Adder> seqDiffusion(gm2, repaStorage, nx, ny, noIterations, eps, 0);
-	 std::cout << "** Diffusion SEQ" << std::endl;
-	 seqDiffusion.infer();
-	 seqDiffusion.arg(labeling2);
-	 std::cout << std::endl << std::endl;
-
-	 std::cout << "Energy Diffusion MPI: " << mpiDiffusion.energy() << " bound: " << mpiDiffusion.bound() << std::endl;
-	 std::cout << "Energy Diffusion SEQ: " << seqDiffusion.value() << " bound: " << seqDiffusion.bound() << std::endl;
-
-	
-	 std::vector<LabelType> toyLabels(gm.numberOfVariables());
-	 std::cout << "Energy: with all lables 0: " << gm.evaluate(toyLabels.begin()) << std::endl;*/
 	 return 0;
 	}
