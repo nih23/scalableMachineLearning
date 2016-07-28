@@ -25,16 +25,17 @@ int main(int argc, char* argv[])
   size_t oneLabel[1];
   size_t twoLabels[2];  
 
-  IndexType numberFac = _gm.numberOfFactors(0);
-  for (auto i=1; i<_gm.numberOfVariables(); ++i)
+  size_t numberFac = gm.numberOfFactors(0);
+  size_t lastColumnId;
+  for (auto i=1; i<gm.numberOfVariables(); ++i)
   {
-    if (_gm.numberOfFactors(i) == numberFac)
+    if (gm.numberOfFactors(i) == numberFac)
     {
-        _lastColumnId = i+1;
+        lastColumnId = i+1;
         break;
     }
   }
-  std::cout << "LCid: " << _lastColumnId << std::endl;
+  std::cout << "LCid: " << lastColumnId << std::endl;
 
   for ( auto var=0; var < gm.numberOfVariables(); ++var)
   {
