@@ -10,7 +10,7 @@ import org.apache.log4j.Logger
 import org.apache.log4j.Level
 
 /**
-  * first draft of scalable diffusion algorithm based on spark GraphX
+  * first draft of scalable diffusion algorithm based on Apache Spark GraphX
   *
   * @author Nico Hoffmann, Benjamin Naujoks
   */
@@ -32,7 +32,7 @@ object DiffusionGraphX
     val sc = new SparkContext(conf)
 
     // load edge data (experimental)
-    // TODO: read data from opengm's hdf5 file
+    // TODO: import data of opengm's hdf5 file
     val edge_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/pairwiseFactors.csv")
     val nr_labels_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/nrLabels.csv")
     var raw_vertex_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/unaryFactors.csv")
@@ -41,16 +41,15 @@ object DiffusionGraphX
     val graph = GraphLoader.edgeListFile(sc, "benchmark/edgeListFile.txt")
 
     // initialize and run distributed inference algorithm
-    val diffInference = new DiffusionGraphX(graph, nr_labels_array, raw_vertex_array, edge_array)
+    val diffInference = new DiffusionGraphX(graph, nr_labels_array, raw_vertex_array, edge_array, 120)
     diffInference.iter()
   }
 }
 
-class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_vertex_array: DoubleMatrix, edge_array: DoubleMatrix ) extends java.io.Serializable {
+class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_vertex_array: DoubleMatrix, edge_array: DoubleMatrix, lastColumnId: Integer ) extends java.io.Serializable {
 
   val maxIt = 200
   val conv_bound = 0.001
-  val n = 240 //Real size of snail.h5
 
   def iter() = {
 
@@ -88,27 +87,27 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
     {
       //++++++Black++++++
       //compute min_g_tt_phi
-      val black_min_graph = temp_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 0))
+      val black_min_graph = temp_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
 
       //send mins to hashmap
-      val black_send_graph = black_min_graph.mapTriplets(triplet => send_mins(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 0))
+      val black_send_graph = black_min_graph.mapTriplets(triplet => send_mins(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
 
       // update phis
-      val black_graph = black_send_graph.mapTriplets(triplet => compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 0, i))
+      val black_graph = black_send_graph.mapTriplets(triplet => compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0, i))
       black_graph.triplets.collect()
 
 
       //++++White*****
-      val white_min_graph = black_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 1))
-      val white_send_graph = white_min_graph.mapTriplets(triplet => send_mins(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 1))
-      val white_graph = white_send_graph.mapTriplets(triplet => compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 1, i))
+      val white_min_graph = black_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1))
+      val white_send_graph = white_min_graph.mapTriplets(triplet => send_mins(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1))
+      val white_graph = white_send_graph.mapTriplets(triplet => compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1, i))
       white_graph.triplets.collect()
 
 
       //+++bound++++
-      val bound_min_triplets = white_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, n, triplet.attr, 0))
+      val bound_min_triplets = white_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
       val aggregate_vertices = bound_min_triplets.aggregateMessages[Double](triplet => {
-        if ((((triplet.srcId.toInt % n) + (triplet.srcId.toInt / n)) % 2) == 0) {
+        if ((((triplet.srcId.toInt % lastColumnId) + (triplet.srcId.toInt / lastColumnId)) % 2) == 0) {
           triplet.sendToSrc(triplet.srcAttr.min_gtt.get(triplet.dstId.toInt).get.min())
         }
         else // Do not count the edges twice.
@@ -121,7 +120,7 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
 
       // Aggregate energies (use sum of mins of previous state to save computation, as it only is a heuristic)
       val aggregate_vertices_energy = white_graph.aggregateMessages[Double](triplet => {
-        if ((((triplet.srcId.toInt % n) + (triplet.srcId.toInt / n)) % 2) == 0) {
+        if ((((triplet.srcId.toInt % lastColumnId) + (triplet.srcId.toInt / lastColumnId)) % 2) == 0) {
           triplet.sendToSrc(compute_energy(triplet.srcAttr,triplet.dstAttr,triplet.attr))
         }
       },
@@ -149,8 +148,8 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
     data
   }
 
-  def send_mins(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, n: Int, attr: EdgeData, weiss: Int): EdgeData = {
-    if (((((srcId.toInt % n) + (srcId.toInt / n)) % 2) + weiss) == 0) {
+  def send_mins(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): EdgeData = {
+    if (((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0) {
       //src_data.min_gtt += ((dstId.toInt, attr.min_gtt_phi.rowMins()))
       src_data.min_gtt += ((dstId.toInt, src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins()))
       // Reinitialize g_tt_phi temp array
@@ -161,9 +160,9 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
     attr
   }
 
-  def compute_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, n: Int, attr: EdgeData, weiss: Int): EdgeData = {
+  def compute_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): EdgeData = {
 
-    if (((((srcId.toInt % n) + (srcId.toInt / n)) % 2) + weiss) == 0) {
+    if (((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0) {
       src_data.phi_tt_g_tt += ((dstId.toInt, src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.attr.rows, attr.attr.columns)).add(attr.attr.div(2.0).addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.attr.rows))))))
     }
     else {
@@ -172,8 +171,8 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
     attr
   }
 
-  def compute_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, n: Int, attr: EdgeData, weiss: Int, iter: Int): EdgeData = {
-    if (((((srcId.toInt % n) + (srcId.toInt / n)) % 2) + weiss) == 0) {
+  def compute_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int, iter: Int): EdgeData = {
+    if (((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0) {
 
       // compute sum of mins
       src_data.min_sum.fill(0.)
@@ -194,8 +193,8 @@ class DiffusionGraphX(graph: Graph[Int,Int], nr_labels_array: DoubleMatrix, raw_
     attr
   }
 
-  def map_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, n: Int, attr: EdgeData, weiss: Int): Unit = {
-    if (((((srcId.toInt % n) + (srcId.toInt / n)) % 2) + weiss) == 0) {
+  def map_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, attr: EdgeData, weiss: Int): Unit = {
+    if (((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0) {
 
     }
   }
