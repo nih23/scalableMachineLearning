@@ -33,9 +33,9 @@ object DiffusionGraphX
 
     // load edge data (experimental)
     // TODO: read data from opengm's hdf5 file
-    val edge_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/pairwiseFactors.csv")
-    val nr_labels_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/nrLabels.csv")
-    var raw_vertex_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/unaryFactors.csv")
+    val edge_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/pairwiseFactors.csv")
+    val nr_labels_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/nrLabels.csv")
+    var raw_vertex_array: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/triplepoint4-plain-ring/unaryFactors.csv")
 
     // create graph structure
     val graph = GraphLoader.edgeListFile(sc, "benchmark/edgeListFile.txt")
