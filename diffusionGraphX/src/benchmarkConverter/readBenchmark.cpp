@@ -20,6 +20,7 @@ int main(int argc, char* argv[])
   std::ofstream uFactors("uFactors.csv");
   std::ofstream pwFactors("pwFactors.csv");
   std::ofstream edgeFile("edgeListFile.txt");
+  std::ofstream lcidFile("lcid.txt");
 
   bool notSaved = true;
   size_t oneLabel[1];
@@ -36,6 +37,8 @@ int main(int argc, char* argv[])
     }
   }
   std::cout << "LCid: " << lastColumnId << std::endl;
+
+  lcidFile << lastColumnId << std::endl;
 
   for ( auto var=0; var < gm.numberOfVariables(); ++var)
   {
@@ -85,4 +88,6 @@ int main(int argc, char* argv[])
   uFactors.close();
   pwFactors.close();
   edgeFile.close();
+  lcidFile.close();
+
 }
