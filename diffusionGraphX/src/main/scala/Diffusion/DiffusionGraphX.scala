@@ -269,7 +269,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   }
 
   def isWhite(srcId: VertexId, weiss: Int): Boolean = {
-    ((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0
+    ((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) ) == weiss
   }
 
   def mapNode(data: VertexData, out_degree: Int): VertexData = {
