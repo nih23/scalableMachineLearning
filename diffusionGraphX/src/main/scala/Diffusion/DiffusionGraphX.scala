@@ -24,13 +24,13 @@ object DiffusionGraphX
     val conf = new SparkConf()
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
       .setAppName("GraphX Min-Sum Diffusion")
-      .setMaster("local[4]")
+      .setMaster("local[16]")
     val sc = new SparkContext(conf)
 
 
     // TODO: import data of opengm's hdf5 file
-    val benchmark = "snail" // triplepoint4-plain-ring
-    //val benchmark = "triplepoint4-plain-ring"
+    //val benchmark = "snail" // triplepoint4-plain-ring
+    val benchmark = "triplepoint4-plain-ring"
 
 
     // load edge data (experimental)
@@ -167,11 +167,11 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       val aggregate_vertices = bound_min_triplets.aggregateMessages[Double](triplet => {
         if (isWhite(triplet.srcId.toInt, 0)) {
-          val mv = triplet.srcAttr.min_gtt.get(triplet.dstId.toInt).get.min()
-          if (Math.abs(mv) > 0) {
-            println(triplet.srcId.toInt + " => " + mv)
+          val mv = triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min()
+          if (triplet.srcId < 10) {
+            //println(triplet.srcId.toInt + " => " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).toString + " **MIN** " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).rowMaxs().toString)
           }
-          triplet.sendToSrc(triplet.srcAttr.min_gtt.get(triplet.dstId.toInt).get.min())
+          triplet.sendToSrc(triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min())
         }
       },
         (a, b) => a + b
@@ -204,95 +204,56 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
   }
 
-  def mapNode(data: VertexData, out_degree: Int): VertexData = {
-    data.out_degree = out_degree
-    data
-  }
+
 
   def update_mins(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): Tuple2[VertexData, VertexData] = {
     if (isWhite(srcId, weiss)) {
-      src_data.min_gtt += ((dstId.toInt, src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins()))
+      src_data.min_gtt_phi += ((dstId.toInt, src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins()))
       src_data.g_t_phi.putColumn(0, src_data.g_t.div(src_data.out_degree.toDouble).subColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(src_data.g_t.rows))))
     }
     (src_data, dst_data)
   }
 
   def compute_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): Tuple2[VertexData, VertexData] = {
+    //TODO: there seems to be a flaw in this computation ..
     if (isWhite(srcId, weiss)) {
       src_data.phi_tt_g_tt += ((dstId.toInt,
-        src_data.phi_tt_g_tt.getOrElse(dstId.toInt,
-          DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns)).add(attr.g_tt.div(2.0).
-          addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows))))))
+        src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
+          .add(attr.g_tt.div(2.0))
+          .addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)))))
     }
     else {
       dst_data.phi_tt_g_tt += ((srcId.toInt,
-        dst_data.phi_tt_g_tt.getOrElse(srcId.toInt,
-          DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns)).add(attr.g_tt.div(2.0).
-          addRowVector(attr.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)).transpose()))))
+        dst_data.phi_tt_g_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
+          .add(attr.g_tt.div(2.0))
+          .addRowVector(attr.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)).transpose())))
     }
     (src_data, dst_data)
   }
 
 
-  /////////////////////////////////
-  // OLD IMPLEMENTATION (DEPRECATED)
-  /////////////////////////////////
-  /*  //TODO: BROKEN!!! VERTEX DATA IS IMMUTABLE
-    def send_mins(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): EdgeData = {
-      if ( isWhite(srcId, dstId, weiss) ) {
-        //src_data.min_gtt += ((dstId.toInt, attr.min_gtt_phi.rowMins()))
-        //println("row mins " + srcId + "->" + dstId + "= " + src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins())
-        src_data.min_gtt += ((dstId.toInt, src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins()))
-        // Reinitialize g_tt_phi temp array
-        //src_data.phi_tt_g_tt += ((dstId.toInt, DoubleMatrix.zeros(attr.attr.rows,attr.attr.columns)))
-        // Compute g_t_phi (Every edge adds g_t/out_degree to g_t_phi)
-        src_data.g_t_phi.putColumn(0, src_data.g_t.div(src_data.out_degree.toDouble).subColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(src_data.g_t.rows))))
-      }
-      attr
-    }*/
-
-
-  /*  //BROKEN!!! VERTEX DATA IS IMMUTABLE
-    def compute_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): EdgeData = {
-      if ( isWhite(srcId, dstId, weiss) ) {
-        src_data.phi_tt_g_tt += ((dstId.toInt,
-          src_data.phi_tt_g_tt.getOrElse(dstId.toInt,
-            DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns)).add(attr.g_tt.div(2.0).
-            addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows))))))
-      }
-      else {
-        dst_data.phi_tt_g_tt += ((srcId.toInt,
-          dst_data.phi_tt_g_tt.getOrElse(srcId.toInt,
-            DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns)).add(attr.g_tt.div(2.0).
-            addRowVector(attr.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)).transpose()))))
-      }
-      attr
-    }*/
-
-
-  def isWhite(srcId: VertexId, weiss: Int): Boolean = {
-    ((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0
-  }
-
   def compute_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int, iter: Int): EdgeData = {
     if (isWhite(srcId, weiss)) {
       // compute sum of mins
-      src_data.min_sum.fill(0.)
-      for ((k, v) <- src_data.min_gtt) {
-        src_data.min_sum = src_data.min_sum.addColumnVector(v)
+      //src_data.At.fill(0.)
+
+      var At = DoubleMatrix.zeros(src_data.g_t.length)
+      if (iter == 0) // Add g_t in the first iteration
+      {
+        At = src_data.g_t
+      }
+
+      // add gtt_phi of neighbouring grid elements
+      for ((k, v) <- src_data.min_gtt_phi) {
+        At = At.addColumnVector(v)
       }
 
       // update phi_tt'
-      var innerVec = src_data.min_sum
-
-      if (iter == 0) // Add g_t in the first iteration
-      {
-        innerVec = innerVec.addColumnVector(src_data.g_t)
-      }
       attr.phi_tt += ((srcId.toInt,
         attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(src_data.g_t.rows))
-          .subColumnVector(src_data.min_gtt.get(dstId.toInt).get
-            .subColumnVector(innerVec.div(src_data.out_degree.toDouble)))))
+          .subColumnVector(src_data.min_gtt_phi.get(dstId.toInt).get)
+          .subColumnVector(At.div(src_data.out_degree.toDouble))
+        ))
     }
 
     attr
@@ -306,4 +267,14 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     energy += attr.g_tt.get(src_label, dst_label)
     energy
   }
+
+  def isWhite(srcId: VertexId, weiss: Int): Boolean = {
+    ((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) + weiss) == 0
+  }
+
+  def mapNode(data: VertexData, out_degree: Int): VertexData = {
+    data.out_degree = out_degree
+    data
+  }
+
 }

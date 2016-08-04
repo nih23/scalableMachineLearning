@@ -7,8 +7,8 @@ import org.jblas.DoubleMatrix
   */
 class VertexData(var g_t: DoubleMatrix) extends java.io.Serializable {
   var noLabels = g_t.getRows()
-  var min_sum = DoubleMatrix.zeros(noLabels)
-  var min_gtt = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
+  //NOT NEEDED var At = DoubleMatrix.zeros(noLabels)
+  var min_gtt_phi = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
   // min ( g_tt^phi )
   var out_degree: Int = 0
   //var neighbour_ids = new Array[VertexId](4)
@@ -27,11 +27,11 @@ class VertexData(var g_t: DoubleMatrix) extends java.io.Serializable {
       this.phi_tt_g_tt += ((k, v))
     }
 
-    for ((k, v) <- that.min_gtt) {
-      if (this.min_gtt.contains(k) && (v.norm2() < min_gtt(k).norm2())) {
-        min_gtt(k) = v
+    for ((k, v) <- that.min_gtt_phi) {
+      if (this.min_gtt_phi.contains(k) && (v.norm2() < min_gtt_phi(k).norm2())) {
+        min_gtt_phi(k) = v
       }
-      this.min_gtt += ((k, v))
+      this.min_gtt_phi += ((k, v))
     }
 
     this

@@ -50,7 +50,7 @@ int main(int argc, char* argv[])
             for (auto label = 0; label < gm.numberOfLabels(var); ++label)
             {
                 oneLabel[0] = label;
-            uFactors << gm[facId](oneLabel) << std::endl;
+                uFactors << gm[facId](oneLabel) << std::endl;
             }
             nrLabels << gm.numberOfLabels(var) << std::endl;
         }
