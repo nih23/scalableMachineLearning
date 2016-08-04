@@ -5,14 +5,24 @@ import org.jblas.DoubleMatrix
 /**
   * Created by nico on 26.07.2016.
   */
-class VertexData(var g_t: DoubleMatrix) extends java.io.Serializable {
-  var noLabels = g_t.getRows()
+class VertexData(var g_t_c: DoubleMatrix) extends java.io.Serializable {
+  var noLabels = g_t_c.getRows()
   //NOT NEEDED var At = DoubleMatrix.zeros(noLabels)
   var min_gtt_phi = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
   // min ( g_tt^phi )
   var out_degree: Int = 0
   //var neighbour_ids = new Array[VertexId](4)
   var phi_tt_g_tt = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
+
+  // Contains messages to every neighbor
+  var phi_tt = scala.collection.mutable.HashMap.empty[Int,DoubleMatrix]  // has phi_tt' and phi_t't
+
+  // g_t
+  var g_t = g_t_c
+
+  // A_t
+  var At: DoubleMatrix = DoubleMatrix.zeros(noLabels)
+
   // phi_tt of edges + half of the edge attribute
   var g_t_phi: DoubleMatrix = DoubleMatrix.zeros(noLabels)
   //for bound computation
@@ -36,5 +46,16 @@ class VertexData(var g_t: DoubleMatrix) extends java.io.Serializable {
 
     this
 
+  }
+
+  // Add min_gtt_phi to A_t
+  def min_sum( that: VertexData ) = {
+    for ((k,v) <- that.phi_tt_g_tt  ) {
+      if ( this.phi_tt_g_tt.contains(k) ) {
+        this.At.add( that.phi_tt_g_tt(k).rowMins() )
+      }
+
+    }
+    this
   }
 }
