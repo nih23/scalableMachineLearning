@@ -178,7 +178,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       )
 
       // sum up for bound computation
-      bound = aggregate_vertices.aggregate[Double] (zeroValue = 0.0) ((id, data) => data._2, (a,b) => a+b )
+      bound = aggregate_vertices.aggregate[Double] (zeroValue = 0.0) ((id, data) => id + data._2, (a,b) => a+b )
 
       // aggregate energies (use sum of mins of previous state to save computation, as it only is a heuristic)
       val aggregate_vertices_energy = white_graph.aggregateMessages[Double](triplet => {
@@ -190,7 +190,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         (a,b) => a + b
       )
       // sum up for energy computation
-      energy = aggregate_vertices_energy.aggregate[Double] (zeroValue = 0.0) ((id, data) => data._2, (a,b) => a+b)
+      energy = aggregate_vertices_energy.aggregate[Double] (zeroValue = 0.0) ((id, data) => id + data._2, (a,b) => a+b)
       println(i + " -> E " + energy + " B " + bound)
 
       // reset phi_tt_g_tt for fresh compuation in next round
