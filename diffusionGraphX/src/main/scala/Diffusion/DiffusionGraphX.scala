@@ -116,7 +116,6 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       val black_min_graph = Graph(newRdd, temp_graph.edges)
       val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
-          println( "phitt_gtt " + data.phi_tt_g_tt)
         if ( isWhite(vid.toInt,0) ) {
           for ((k, v) <- data.phi_tt_g_tt) {
             data.At.addiColumnVector(v.rowMins())
@@ -200,7 +199,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   }
 
   def compute_vertice_energy( double : Double, data: VertexData ) : Double = {
-    var g_t_phi = data.g_t
+    var g_t_phi = data.g_t.getColumn(0)
     for ( (k,v) <- data.phi_tt) {
       g_t_phi.subiColumnVector( v )
     }
@@ -220,7 +219,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
   def compute_g_tt_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int) : EdgeData = {
     if (isWhite(srcId.toInt, weiss)) {
-      if (srcId.toInt == 1 && dstId.toInt == 0) println( "g_tt before: " + attr.g_tt)
+      //if (srcId.toInt == 1 && dstId.toInt == 0) println( "g_tt before: " + attr.g_tt)
        attr.g_tt_phi.copy( attr.g_tt )
        attr.g_tt_phi.addiColumnVector(src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
                     .addiRowVector(dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(dst_data.g_t.rows)).transpose())
@@ -269,15 +268,15 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
   def compute_phi( srcId: VertexId, data : VertexData, weiss: Int ) : VertexData = {
     if ( isWhite(srcId.toInt, weiss) ) {
-      if ( srcId.toInt == 0 ) println( "At of 0: " + data.At )
-      if ( srcId.toInt == 1 ) println( "At")
+      //if ( srcId.toInt == 0 ) println( "At of 0: " + data.At )
+      //if ( srcId.toInt == 1 ) println( "At")
       for ((k,v) <- data.phi_tt_g_tt ){
         data.phi_tt += ((k, data.phi_tt.getOrElse(k, DoubleMatrix.zeros(data.g_t.rows))
                                         .subColumnVector( v.rowMins() )
                                         .addColumnVector( data.At.div( data.out_degree.toDouble ) )) )
 
       }
-      if ( srcId.toInt == 0 ) println("phi_tt: " + data.phi_tt)
+      //if ( srcId.toInt == 0 ) println("phi_tt: " + data.phi_tt)
     }
     data
   }
