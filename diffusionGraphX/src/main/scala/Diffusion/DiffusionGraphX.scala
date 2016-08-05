@@ -31,7 +31,7 @@ object DiffusionGraphX
     // TODO: import data of opengm's hdf5 file
     val benchmark = "snail" // triplepoint4-plain-ring
     //val benchmark = "triplepoint4-plain-ring"
-   // val benchmark = "toy"
+    //val benchmark = "toy"
 
 
     // load edge data (experimental)
@@ -113,33 +113,11 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           msg1.min_sum( msg2 )
         }
       )
-      /*val newRdd = temp_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )*/
-      val black_min_graph = Graph(newRdd, temp_graph.edges)
 
-      //send mins to hashmap
-      /*val newRdd2 = black_min_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = update_mins(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val black_send_graph = Graph(newRdd2, black_min_graph.edges)*/
+      val black_min_graph = Graph(newRdd, temp_graph.edges)
 
       // update phis
       val black_graph = black_min_graph.mapVertices( (vid,data) => compute_phi(vid, data, 0) )
-      //val black_graph = black_send_graph.mapTriplets(triplet =>
-      //  compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0, i))
 
 
       //+++ White +++
@@ -162,33 +140,6 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       // update phis
       temp_graph = white_min_graph.mapVertices( (vid,data) => compute_phi(vid, data, 1) )
 
-      //compute min_g_tt_phi
-      /*val newRdd3 = black_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val white_min_graph = Graph(newRdd3, black_graph.edges)
-
-      //send mins to hashmap
-      val newRdd4 = white_min_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = update_mins(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val white_send_graph = Graph(newRdd4, white_min_graph.edges)
-
-      val white_graph = white_send_graph.mapTriplets(triplet =>
-        compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1, i))*/
-
       //+++ COMPUTE BOUND +++
       // Compute g_tt_phi
       val bound_graph = temp_graph.mapTriplets(triplet =>
@@ -203,49 +154,17 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         (a,b) => a+b )
 
 
-
-      //val bound_min_triplets = white_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
-     /* val newRdd5 = bound_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val bound_min_triplets = Graph(newRdd5, white_graph.edges) */
-
       // sum up for bound computation
-      bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((id, data) => data._2, (a,b) => a+b )
+      bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => double + data._2, (a,b) => a+b )
 
-      /*val aggregate_vertices = bound_min_triplets.aggregateMessages[Double](triplet => {
-        if (isWhite(triplet.srcId.toInt, 0)) {
-          val mv = triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min()
-          if (triplet.srcId < 10) {
-            //println(triplet.srcId.toInt + " => " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).toString + " **MIN** " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).rowMaxs().toString)
-          }
-          triplet.sendToSrc(triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min())
-        }
-      },
-        (a, b) => a + b
-      )
-
-      // sum up for bound computation
-      bound = aggregate_vertices.aggregate[Double] (zeroValue = 0.0) ((id, data) => data._2, (a,b) => a+b )
-*/
-      // aggregate energies (use sum of mins of previous state to save computation, as it only is a heuristic)
-      /*val aggregate_vertices_energy = white_graph.aggregateMessages[Double](triplet => {
-        if (isWhite(triplet.srcId.toInt, 0)) {
-          //if ((((triplet.srcId.toInt % lastColumnId) + (triplet.srcId.toInt / lastColumnId)) % 2) == 0) {
-          triplet.sendToSrc(compute_energy(triplet.srcAttr, triplet.dstAttr, triplet.attr))
-        }
-      },
-        (a,b) => a + b
-      )*/
       // sum up for energy computation
-      //energy = aggregate_vertices_energy.aggregate[Double] (zeroValue = 0.0) ((id, data) => data._2, (a,b) => a+b)
-      println(i + " -> E "  + " B " + bound)
+      // Energy of pairwise factors
+      // Compute new g_tt_phi
+      temp_graph = temp_graph.mapTriplets(triplet =>
+                      compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
+      energy =  temp_graph.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => compute_edge_energy(double,data ), (a,b) => a+b )
+      energy += temp_graph.vertices.aggregate[Double] (zeroValue = 0.0) ((double,data) => compute_vertice_energy(double,data._2), (a,b) => a+b)
+      println(i + " -> E " + energy  + " B " + bound)
 
       // reset phi_tt_g_tt for fresh compuation in next round
       /*temp_graph = white_graph.mapVertices((vid,data) =>{
@@ -256,6 +175,19 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     }
 
 
+  }
+
+  def compute_edge_energy( double : Double, data : Edge[EdgeData] ) : Double = {
+    if (isWhite(data.srcId, 0)) double + data.attr.g_tt_phi.rowMins().min() else double
+  }
+
+  def compute_vertice_energy( double : Double, data: VertexData ) : Double = {
+    var g_t_phi = data.g_t
+    for ( (k,v) <- data.phi_tt) {
+      g_t_phi.subColumnVector( v )
+    }
+    //println( data.g_t.get(g_t_phi.argmin()) )
+    double + data.g_t.get( g_t_phi.argmin() )
   }
 
   def set_a_t( data: VertexData, i: Int ) : VertexData = {
