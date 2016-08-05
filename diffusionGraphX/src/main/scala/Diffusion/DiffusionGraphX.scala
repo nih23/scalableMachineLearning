@@ -31,7 +31,7 @@ object DiffusionGraphX
     // TODO: import data of opengm's hdf5 file
     //val benchmark = "snail" // triplepoint4-plain-ring
     //val benchmark = "triplepoint4-plain-ring"
-    val benchmark = "toy2"
+    val benchmark = "toy3"
 
 
     // load edge data (experimental)
@@ -96,12 +96,22 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     for (i <- 0 to maxIt)
     {
       // Firstly, set A_t to g_t after the first iteration At == 0
-      val temp_graph2 = temp_graph.mapVertices( (vid,data) => set_a_t( data, i ) )
-
+      /*if ( i == 0 )  {
+        temp_graph = temp_graph.mapVertices( (vid,data) => {
+          data.At.putColumn(0,data.g_t )
+          data
+        } )
+      }
+      else {
+        temp_graph = temp_graph.mapVertices(  (vid,data) => {
+          data.At.putColumn(0, DoubleMatrix.zeros(data.At.rows))
+          data
+        } )
+      }*/
       //+++ Black +++
 
       // Compute g_tt_phi
-      val black_graph1 = temp_graph2.mapTriplets(triplet =>
+      val black_graph1 = temp_graph.mapTriplets(triplet =>
         compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
 
       //compute sum of min_g_tt_phi
@@ -117,7 +127,9 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       val black_min_graph = Graph(newRdd, temp_graph.edges)
       val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
         if ( isWhite(vid.toInt,0) ) {
+          if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
           for ((k, v) <- data.phi_tt_g_tt) {
+
             data.At.addiColumnVector(v.rowMins())
           }
         }
@@ -147,6 +159,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
         if (isWhite(vid.toInt, 1)) {
+          if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
           for ((k, v) <- data.phi_tt_g_tt) {
             data.At.addiColumnVector(v.rowMins())
           }
@@ -195,7 +208,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   }
 
   def compute_edge_energy( double : Double, data : Edge[EdgeData] ) : Double = {
-    if (isWhite(data.srcId.toInt, 0)) double + data.attr.g_tt_phi.rowMins().min() else double
+    if (isWhite(data.srcId.toInt, 0)) double + data.attr.g_tt_phi.rowMins().min() else 0.0
   }
 
   def compute_vertice_energy( double : Double, data: VertexData ) : Double = {
@@ -250,7 +263,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     //TODO: there seems to be a flaw in this computation ..
     if (isWhite(srcId.toInt, weiss)) {
       //println( "added to vertex: " + srcId.toInt + " key: " + dstId.toInt)
-      src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi ) )
+      src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi.dup() ) )
       //src_data.phi_tt_g_tt += ((dstId.toInt,
       //  src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
       //    .add(attr.g_tt.div(2.0))
@@ -273,7 +286,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       for ((k,v) <- data.phi_tt_g_tt ){
         data.phi_tt += ((k, data.phi_tt.getOrElse(k, DoubleMatrix.zeros(data.g_t.rows))
                                         .subColumnVector( v.rowMins() )
-                                        .addColumnVector( data.At.div( data.out_degree.toDouble ) )) )
+                                        .addColumnVector( data.At.dup().div( data.out_degree.toDouble ) )) )
 
       }
       //if ( srcId.toInt == 0 ) println("phi_tt: " + data.phi_tt)

@@ -21,10 +21,10 @@ class VertexData(var g_t_c: DoubleMatrix) extends java.io.Serializable {
   var phi_tt = scala.collection.mutable.HashMap.empty[Int,DoubleMatrix]  // has phi_tt' and phi_t't
 
   // g_t
-  var g_t = g_t_c
+  var g_t = g_t_c.dup()
 
   // A_t
-  var At: DoubleMatrix = DoubleMatrix.zeros(noLabels)
+  var At: DoubleMatrix = g_t_c.dup()
 
   // phi_tt of edges + half of the edge attribute
   var g_t_phi: DoubleMatrix = DoubleMatrix.zeros(noLabels)
