@@ -116,9 +116,12 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       val black_min_graph = Graph(newRdd, temp_graph.edges)
       val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
-          for ( (k,v) <- data.phi_tt_g_tt ){
-            data.At.addiColumnVector( v.rowMins() )
+          println( "phitt_gtt " + data.phi_tt_g_tt)
+        if ( isWhite(vid.toInt,0) ) {
+          for ((k, v) <- data.phi_tt_g_tt) {
+            data.At.addiColumnVector(v.rowMins())
           }
+        }
           data
       }  )
       // update phis
@@ -144,8 +147,10 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       val white_min_graph = Graph(newRdd1, temp_graph.edges)
 
       val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
-        for ( (k,v) <- data.phi_tt_g_tt ){
-          data.At.addiColumnVector( v.rowMins() )
+        if (isWhite(vid.toInt, 1)) {
+          for ((k, v) <- data.phi_tt_g_tt) {
+            data.At.addiColumnVector(v.rowMins())
+          }
         }
         data
       }  )
