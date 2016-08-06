@@ -51,7 +51,7 @@ object DiffusionGraphX
 
 class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer) extends java.io.Serializable {
 
-  val maxIt = 200
+  val maxIt = 1
   val conv_bound = 0.001
 
   def apply() = {
@@ -123,28 +123,33 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           msg1
         }
       )
+      println( black_graph1.vertices.count() )
 
       val black_min_graph = Graph(newRdd, temp_graph.edges)
+      println( black_min_graph.vertices.count() )
       val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
         if ( isWhite(vid.toInt,0) ) {
-          if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
+          if ( i != 0 )  data.At.putColumn(0,data.At.fill(0.))
           for ((k, v) <- data.phi_tt_g_tt) {
-
+            println( "rowmins : " + v.rowMins() + " vid " + vid)
             data.At.addiColumnVector(v.rowMins())
           }
+          println( "A_t: " + data.At + " vid: " + vid.toInt)
         }
+
           data
       }  )
+      println( black_min_graph2.vertices.count() )
       // update phis
       val black_graph = black_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 0) )
-
+      println( black_graph.vertices.count() )
 
       //+++ White +++
 
       // Compute g_tt_phi
       val white_graph1 = black_graph.mapTriplets(triplet =>
         compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1))
-
+      println( white_graph1.vertices.count() )
       //compute sum of min_g_tt_phi
       val newRdd1 = white_graph1.aggregateMessages[VertexData]( edgeContext => {
         val msg = send_g_tt_phi( edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
@@ -154,22 +159,26 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           msg1
         }
       )
+      println( white_graph1.vertices.count() )
 
       val white_min_graph = Graph(newRdd1, temp_graph.edges)
-
+      println( white_min_graph.vertices.count() )
       val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
         if (isWhite(vid.toInt, 1)) {
           if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
           for ((k, v) <- data.phi_tt_g_tt) {
+            println( "rowmins : " + v.rowMins() + " vid " + vid)
             data.At.addiColumnVector(v.rowMins())
+            println( "A_t: " + data.At + " vid: " + vid.toInt)
           }
+
         }
         data
       }  )
-
+      println( white_min_graph2.vertices.count() )
       // update phis
       temp_graph = white_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 1) )
-
+      println( temp_graph.vertices.count() )
       //+++ COMPUTE BOUND +++
       // Compute g_tt_phi
       val bound_graph = temp_graph.mapTriplets(triplet =>
@@ -182,8 +191,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         }
       },
         (a,b) => a+b )
-
-
+      
       // sum up for bound computation
       bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => double + data._2, (a,b) => a+b )
 
@@ -246,8 +254,11 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           println( "phi_t't " + dst_data.phi_tt(srcId.toInt) )
           println( "g_tt_phi of 1: " + attr.g_tt_phi)
         }*/
+      println( "phi_tt' " + src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+      println( "phi_t't " + dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(dst_data.g_t.rows)).transpose() )
       //if ( srcId.toInt == 0) println(attr.g_tt_phi)
     }
+    println( "g_tt_phi: "  + attr.g_tt_phi + " srcid: " + srcId.toInt  + " dtsid: " + dstId.toInt )
     attr
   }
 
@@ -261,6 +272,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
   def send_g_tt_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): VertexData = {
     //TODO: there seems to be a flaw in this computation ..
+    println( "srcid: " + srcId.toInt + " weiss? " + isWhite(srcId.toInt,weiss))
     if (isWhite(srcId.toInt, weiss)) {
       //println( "added to vertex: " + srcId.toInt + " key: " + dstId.toInt)
       src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi.dup() ) )
@@ -289,6 +301,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
                                         .addColumnVector( data.At.dup().div( data.out_degree.toDouble ) )) )
 
       }
+      println( " phitt of srcid: "  + srcId.toInt + " " + data.phi_tt )
       //if ( srcId.toInt == 0 ) println("phi_tt: " + data.phi_tt)
     }
     data
