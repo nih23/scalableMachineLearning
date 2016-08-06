@@ -9,7 +9,7 @@ import org.jblas.DoubleMatrix
 /**
   * first draft of scalable diffusion algorithm based on Apache Spark GraphX
   *
-  * @author Nico Hoffmann, Benjamin Naujoks
+  * @author Benjamin Naujoks, Nico Hoffmann
   */
 
 object DiffusionGraphX
@@ -194,6 +194,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       
       // sum up for bound computation
       bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => double + data._2, (a,b) => a+b )
+
 
       // sum up for energy computation
       // Energy of pairwise factors
