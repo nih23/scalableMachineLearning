@@ -9,7 +9,7 @@ import org.jblas.DoubleMatrix
 /**
   * first draft of scalable diffusion algorithm based on Apache Spark GraphX
   *
-  * @author Nico Hoffmann, Benjamin Naujoks
+  * @author Benjamin Naujoks, Nico Hoffmann
   */
 
 object DiffusionGraphX
@@ -30,7 +30,8 @@ object DiffusionGraphX
 
     // TODO: import data of opengm's hdf5 file
     //val benchmark = "snail" // triplepoint4-plain-ring
-    val benchmark = "triplepoint4-plain-ring"
+    //val benchmark = "triplepoint4-plain-ring"
+    val benchmark = "toy3"
 
 
     // load edge data (experimental)
@@ -50,7 +51,7 @@ object DiffusionGraphX
 
 class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer) extends java.io.Serializable {
 
-  val maxIt = 200
+  val maxIt = 1
   val conv_bound = 0.001
 
   def apply() = {
@@ -86,152 +87,228 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       new VertexData(g_t.getOrElse(vid.toInt, DoubleMatrix.zeros(noLabelsOfEachVertex.get(vid.toInt).toInt)))
     }
     )
-    val next_graph = new_graph.outerJoinVertices(new_graph.outDegrees){(vid,data,out_degree) => mapNode(data,out_degree.getOrElse(0)) }
+    val next_graph = new_graph.outerJoinVertices(new_graph.outDegrees){(vid,data,out_degree) => mapNode(data,out_degree.getOrElse(0), vid.toInt) }
     var temp_graph = next_graph.mapEdges(e => edges)
+
 
 
     // Start Min-Sum Diffusion Iteration
     for (i <- 0 to maxIt)
     {
+      // Firstly, set A_t to g_t after the first iteration At == 0
+      /*if ( i == 0 )  {
+        temp_graph = temp_graph.mapVertices( (vid,data) => {
+          data.At.putColumn(0,data.g_t )
+          data
+        } )
+      }
+      else {
+        temp_graph = temp_graph.mapVertices(  (vid,data) => {
+          data.At.putColumn(0, DoubleMatrix.zeros(data.At.rows))
+          data
+        } )
+      }*/
       //+++ Black +++
-      //compute min_g_tt_phi
-      val newRdd = temp_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
+
+      // Compute g_tt_phi
+      val black_graph1 = temp_graph.mapTriplets(triplet =>
+        compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
+
+      //compute sum of min_g_tt_phi
+      val newRdd = black_graph1.aggregateMessages[VertexData]( edgeContext => {
+        val msg = send_g_tt_phi( edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
+        edgeContext.sendToSrc( msg )
+      },
+        (msg1, msg2) => {
+          msg1
         }
       )
+      println( black_graph1.vertices.count() )
+
       val black_min_graph = Graph(newRdd, temp_graph.edges)
-
-      //send mins to hashmap
-      val newRdd2 = black_min_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = update_mins(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
+      println( black_min_graph.vertices.count() )
+      val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
+        if ( isWhite(vid.toInt,0) ) {
+          if ( i != 0 )  data.At.putColumn(0,data.At.fill(0.))
+          for ((k, v) <- data.phi_tt_g_tt) {
+            println( "rowmins : " + v.rowMins() + " vid " + vid)
+            data.At.addiColumnVector(v.rowMins())
+          }
+          println( "A_t: " + data.At + " vid: " + vid.toInt)
         }
-      )
-      val black_send_graph = Graph(newRdd2, black_min_graph.edges)
 
+          data
+      }  )
+      println( black_min_graph2.vertices.count() )
       // update phis
-      val black_graph = black_send_graph.mapTriplets(triplet =>
-        compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0, i))
-
+      val black_graph = black_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 0) )
+      println( black_graph.vertices.count() )
 
       //+++ White +++
-      //compute min_g_tt_phi
-      val newRdd3 = black_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
+
+      // Compute g_tt_phi
+      val white_graph1 = black_graph.mapTriplets(triplet =>
+        compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1))
+      println( white_graph1.vertices.count() )
+      //compute sum of min_g_tt_phi
+      val newRdd1 = white_graph1.aggregateMessages[VertexData]( edgeContext => {
+        val msg = send_g_tt_phi( edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
+        edgeContext.sendToSrc( msg )
+      },
+        (msg1, msg2) => {
+          msg1
         }
       )
-      val white_min_graph = Graph(newRdd3, black_graph.edges)
+      println( white_graph1.vertices.count() )
 
-      //send mins to hashmap
-      val newRdd4 = white_min_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = update_mins(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 1)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val white_send_graph = Graph(newRdd4, white_min_graph.edges)
-
-      val white_graph = white_send_graph.mapTriplets(triplet =>
-        compute_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 1, i))
-
-      //+++ COMPUTE BOUND +++
-      //val bound_min_triplets = white_graph.mapTriplets(triplet => compute_min(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
-      val newRdd5 = white_graph.aggregateMessages[VertexData](edgeContext => {
-        val msg = compute_min(edgeContext.srcId, edgeContext.dstId, edgeContext.srcAttr, edgeContext.dstAttr, edgeContext.attr, 0)
-        edgeContext.sendToSrc(msg._1)
-        edgeContext.sendToDst(msg._2)
-      }
-        , (msg1: VertexData, msg2: VertexData) => {
-          msg1 + msg2
-        }
-      )
-      val bound_min_triplets = Graph(newRdd5, white_graph.edges)
-
-
-      val aggregate_vertices = bound_min_triplets.aggregateMessages[Double](triplet => {
-        if (isWhite(triplet.srcId.toInt, 0)) {
-          val mv = triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min()
-          if (triplet.srcId < 10) {
-            //println(triplet.srcId.toInt + " => " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).toString + " **MIN** " + triplet.srcAttr.phi_tt_g_tt(triplet.dstId.toInt).rowMaxs().toString)
+      val white_min_graph = Graph(newRdd1, temp_graph.edges)
+      println( white_min_graph.vertices.count() )
+      val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
+        if (isWhite(vid.toInt, 1)) {
+          if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
+          for ((k, v) <- data.phi_tt_g_tt) {
+            println( "rowmins : " + v.rowMins() + " vid " + vid)
+            data.At.addiColumnVector(v.rowMins())
+            println( "A_t: " + data.At + " vid: " + vid.toInt)
           }
-          triplet.sendToSrc(triplet.srcAttr.min_gtt_phi.get(triplet.dstId.toInt).get.min())
+
+        }
+        data
+      }  )
+      println( white_min_graph2.vertices.count() )
+      // update phis
+      temp_graph = white_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 1) )
+      println( temp_graph.vertices.count() )
+      //+++ COMPUTE BOUND +++
+      // Compute g_tt_phi
+      val bound_graph = temp_graph.mapTriplets(triplet =>
+        compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
+
+      val aggregate_v = bound_graph.aggregateMessages[Double]( triplet => {
+        if ( isWhite(triplet.srcId.toInt, 0)){
+          val minimum = triplet.attr.g_tt_phi.rowMins().min()
+          triplet.sendToSrc( minimum )
         }
       },
-        (a, b) => a + b
-      )
-
+        (a,b) => a+b )
+      
       // sum up for bound computation
-      bound = aggregate_vertices.aggregate[Double] (zeroValue = 0.0) ((id, data) => id + data._2, (a,b) => a+b )
+      bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => double + data._2, (a,b) => a+b )
 
-      // aggregate energies (use sum of mins of previous state to save computation, as it only is a heuristic)
-      val aggregate_vertices_energy = white_graph.aggregateMessages[Double](triplet => {
-        if (isWhite(triplet.srcId.toInt, 0)) {
-          //if ((((triplet.srcId.toInt % lastColumnId) + (triplet.srcId.toInt / lastColumnId)) % 2) == 0) {
-          triplet.sendToSrc(compute_energy(triplet.srcAttr, triplet.dstAttr, triplet.attr))
-        }
-      },
-        (a,b) => a + b
-      )
+
       // sum up for energy computation
-      energy = aggregate_vertices_energy.aggregate[Double] (zeroValue = 0.0) ((id, data) => id + data._2, (a,b) => a+b)
-      println(i + " -> E " + energy + " B " + bound)
+      // Energy of pairwise factors
+      // Compute new g_tt_phi
+      temp_graph = temp_graph.mapTriplets(triplet =>
+                      compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
+      energy =  temp_graph.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => compute_edge_energy(double,data ), (a,b) => a+b )
+      energy += temp_graph.vertices.aggregate[Double] (zeroValue = 0.0) ((double,data) => compute_vertice_energy(double,data._2), (a,b) => a+b)
+      println(i + " -> E " + energy  + " B " + bound)
 
       // reset phi_tt_g_tt for fresh compuation in next round
-      temp_graph = white_graph.mapVertices((vid,data) =>{
+      /*temp_graph = white_graph.mapVertices((vid,data) =>{
         data.phi_tt_g_tt = data.phi_tt_g_tt.empty
         data
-      })
+      })*/
 
     }
 
 
   }
 
+  def compute_edge_energy( double : Double, data : Edge[EdgeData] ) : Double = {
+    if (isWhite(data.srcId.toInt, 0)) double + data.attr.g_tt_phi.rowMins().min() else 0.0
+  }
 
+  def compute_vertice_energy( double : Double, data: VertexData ) : Double = {
+    var g_t_phi = data.g_t.getColumn(0)
+    for ( (k,v) <- data.phi_tt) {
+      g_t_phi.subiColumnVector( v )
+    }
+    //println( data.g_t.get(g_t_phi.argmin()) )
+    double + data.g_t.get( g_t_phi.argmin() )
+  }
+
+  def set_a_t( data: VertexData, i: Int ) : VertexData = {
+    if ( i == 0 ) {
+      data.At.putColumn(0,data.g_t )
+    }
+    else {
+      data.At.fill(0.)
+    }
+    data
+  }
+
+  def compute_g_tt_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int) : EdgeData = {
+    if (isWhite(srcId.toInt, weiss)) {
+      //if (srcId.toInt == 1 && dstId.toInt == 0) println( "g_tt before: " + attr.g_tt)
+       attr.g_tt_phi.copy( attr.g_tt )
+       attr.g_tt_phi.addiColumnVector(src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+                    .addiRowVector(dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(dst_data.g_t.rows)).transpose())
+         //= attr.g_tt.addColumnVector( src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+         //                       .addColumnVector( dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(dst_data.g_t.rows)).transpose() )
+
+      /*if ( srcId.toInt == 1 && dstId.toInt == 0 )
+        {
+          println( "g_tt: " + attr.g_tt)
+          println( "phi_tt' " + src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+          println( "phi_t't " + dst_data.phi_tt(srcId.toInt) )
+          println( "g_tt_phi of 1: " + attr.g_tt_phi)
+        }*/
+      println( "phi_tt' " + src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+      println( "phi_t't " + dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(dst_data.g_t.rows)).transpose() )
+      //if ( srcId.toInt == 0) println(attr.g_tt_phi)
+    }
+    println( "g_tt_phi: "  + attr.g_tt_phi + " srcid: " + srcId.toInt  + " dtsid: " + dstId.toInt )
+    attr
+  }
 
   def update_mins(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): Tuple2[VertexData, VertexData] = {
-    if (isWhite(srcId, weiss)) {
+    if (isWhite(srcId.toInt, weiss)) {
       src_data.min_gtt_phi += ((dstId.toInt, src_data.phi_tt_g_tt.get(dstId.toInt).get.rowMins()))
       src_data.g_t_phi.putColumn(0, src_data.g_t.div(src_data.out_degree.toDouble).subColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(src_data.g_t.rows))))
     }
     (src_data, dst_data)
   }
 
-  def compute_min(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): Tuple2[VertexData, VertexData] = {
+  def send_g_tt_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int): VertexData = {
     //TODO: there seems to be a flaw in this computation ..
-    if (isWhite(srcId, weiss)) {
-      src_data.phi_tt_g_tt += ((dstId.toInt,
-        src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
-          .add(attr.g_tt.div(2.0))
-          .addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)))))
+    println( "srcid: " + srcId.toInt + " weiss? " + isWhite(srcId.toInt,weiss))
+    if (isWhite(srcId.toInt, weiss)) {
+      //println( "added to vertex: " + srcId.toInt + " key: " + dstId.toInt)
+      src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi.dup() ) )
+      //src_data.phi_tt_g_tt += ((dstId.toInt,
+      //  src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
+      //    .add(attr.g_tt.div(2.0))
+      //    .addColumnVector(attr.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)))))
     }
-    else {
+    //if ( srcId.toInt == weiss ) println( src_data.phi_tt_g_tt )
+    /*else {
       dst_data.phi_tt_g_tt += ((srcId.toInt,
         dst_data.phi_tt_g_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
           .add(attr.g_tt.div(2.0))
           .addRowVector(attr.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows)).transpose())))
-    }
-    (src_data, dst_data)
+    }*/
+    src_data
   }
 
+  def compute_phi( srcId: VertexId, data : VertexData, weiss: Int ) : VertexData = {
+    if ( isWhite(srcId.toInt, weiss) ) {
+      //if ( srcId.toInt == 0 ) println( "At of 0: " + data.At )
+      //if ( srcId.toInt == 1 ) println( "At")
+      for ((k,v) <- data.phi_tt_g_tt ){
+        data.phi_tt += ((k, data.phi_tt.getOrElse(k, DoubleMatrix.zeros(data.g_t.rows))
+                                        .subColumnVector( v.rowMins() )
+                                        .addColumnVector( data.At.dup().div( data.out_degree.toDouble ) )) )
 
+      }
+      println( " phitt of srcid: "  + srcId.toInt + " " + data.phi_tt )
+      //if ( srcId.toInt == 0 ) println("phi_tt: " + data.phi_tt)
+    }
+    data
+  }
+
+/*
   def compute_phi(srcId: VertexId, dstId: VertexId, src_data: VertexData, dst_data: VertexData, attr: EdgeData, weiss: Int, iter: Int): EdgeData = {
     if (isWhite(srcId, weiss)) {
       // compute sum of mins
@@ -257,7 +334,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     }
 
     attr
-  }
+  }*/
 
   def compute_energy(src_attr: VertexData, dst_attr: VertexData, attr: EdgeData): Double = {
     val src_label = src_attr.g_t_phi.argmin()
@@ -268,12 +345,13 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     energy
   }
 
-  def isWhite(srcId: VertexId, weiss: Int): Boolean = {
-    ((((srcId.toInt % lastColumnId) + (srcId.toInt / lastColumnId)) % 2) ) == weiss
+  def isWhite(srcId: Int, weiss: Int): Boolean = {
+    ((((srcId % lastColumnId) + (srcId / lastColumnId)) % 2) ) == weiss
   }
 
-  def mapNode(data: VertexData, out_degree: Int): VertexData = {
+  def mapNode(data: VertexData, out_degree: Int, vid: Int): VertexData = {
     data.out_degree = out_degree
+    data.vid = vid
     data
   }
 
