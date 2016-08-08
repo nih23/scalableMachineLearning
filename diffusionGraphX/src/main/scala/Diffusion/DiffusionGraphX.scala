@@ -184,26 +184,62 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       val bound_graph = temp_graph.mapTriplets(triplet =>
         compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
 
-      val aggregate_v = bound_graph.aggregateMessages[Double]( triplet => {
+      /*val aggregate_v = bound_graph.aggregateMessages[Double]( triplet => {
         if ( isWhite(triplet.srcId.toInt, 0)){
           val minimum = triplet.attr.g_tt_phi.rowMins().min()
+          println( minimum )
           triplet.sendToSrc( minimum )
         }
       },
         (a,b) => a+b )
-      
+      println(aggregate_v.count())
       // sum up for bound computation
-      bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => double + data._2, (a,b) => a+b )
-
+      bound = aggregate_v.aggregate[Double] (zeroValue = 0.0) ((double, data) => {
+        println( "double: " + double + " data_2" + data._2 )
+       double + data._2}, (a,b) => a+b )*/
+      bound = bound_graph.edges.aggregate[Double](zeroValue = 0.0) ((double, data) => {
+        var result = 0.
+        if ( isWhite(data.srcId.toInt,0 ) ){
+          result = data.attr.g_tt_phi.rowMins().min()
+        }
+        double + result
+      }, (a,b) => a+b )
 
       // sum up for energy computation
       // Energy of pairwise factors
       // Compute new g_tt_phi
       temp_graph = temp_graph.mapTriplets(triplet =>
-                      compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
-      energy =  temp_graph.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => compute_edge_energy(double,data ), (a,b) => a+b )
-      energy += temp_graph.vertices.aggregate[Double] (zeroValue = 0.0) ((double,data) => compute_vertice_energy(double,data._2), (a,b) => a+b)
-      println(i + " -> E " + energy  + " B " + bound)
+        compute_g_tt_phi(triplet.srcId, triplet.dstId, triplet.srcAttr, triplet.dstAttr, triplet.attr, 0))
+
+      var temp_graph2 = temp_graph.mapVertices((vid, data) => {
+
+        data.At.putColumn(0, data.At.fill(0.))
+        for ((k, v) <- data.phi_tt_g_tt) {
+          println("rowmins : " + v.rowMins() + " vid " + vid)
+          data.At.addiColumnVector(v.rowMins())
+          println("A_t: " + data.At + " vid: " + vid.toInt)
+        }
+        data
+      }
+      )
+
+      temp_graph2 = temp_graph2.mapTriplets(  triplet => {
+        if ( isWhite( triplet.srcId.toInt, 0 ) ) {
+          println(" id: " + triplet.srcId + "argmin: " + triplet.srcAttr.At.argmin() + " At: " + triplet.srcAttr.At)
+          println(" id: " + triplet.dstId + "argmin: " + triplet.dstAttr.At.argmin() + " At: " + triplet.dstAttr.At)
+          triplet.attr.src_label = triplet.srcAttr.At.argmin()
+          triplet.attr.dst_label = triplet.dstAttr.At.argmin()
+        }
+        triplet.attr
+      } )
+
+      energy = temp_graph2.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => double + compute_edge_energy(double,data ), (a,b) => a+b )
+      println("energy edge: " + energy)
+      println( temp_graph2.edges.collect() )
+      println("energy edge: " + energy)
+      energy = energy + temp_graph2.vertices.aggregate[Double] (zeroValue = 0.0) ((double,data) => compute_vertice_energy(double,data._2), (a,b) => a+b)
+      println( temp_graph2.edges.collect() )
+      println(i + " -> E " + energy  + " B " + bound + "---------------------------------------------")
 
       // reset phi_tt_g_tt for fresh compuation in next round
       /*temp_graph = white_graph.mapVertices((vid,data) =>{
@@ -217,16 +253,20 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   }
 
   def compute_edge_energy( double : Double, data : Edge[EdgeData] ) : Double = {
-    if (isWhite(data.srcId.toInt, 0)) double + data.attr.g_tt_phi.rowMins().min() else 0.0
+    println( "g_tt energy " + data.attr.g_tt + "src und dstlabel: " + data.attr.src_label + data.attr.dst_label )
+    var result = 0.
+    if (isWhite(data.srcId.toInt, 0)) {
+      result = data.attr.g_tt.get(data.attr.src_label, data.attr.dst_label)
+    }
+    println( "result edge:" + result + "srcid: " + data.srcId.toInt)
+    result
   }
 
   def compute_vertice_energy( double : Double, data: VertexData ) : Double = {
-    var g_t_phi = data.g_t.getColumn(0)
-    for ( (k,v) <- data.phi_tt) {
-      g_t_phi.subiColumnVector( v )
-    }
-    //println( data.g_t.get(g_t_phi.argmin()) )
-    double + data.g_t.get( g_t_phi.argmin() )
+    println( " Label: " + data.At.argmin())
+    val result = double + data.g_t.get( data.At.argmin() )
+    println( " vertice energy: " + result)
+    result
   }
 
   def set_a_t( data: VertexData, i: Int ) : VertexData = {

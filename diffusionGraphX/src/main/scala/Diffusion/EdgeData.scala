@@ -7,6 +7,9 @@ import org.jblas.DoubleMatrix
   */
 class EdgeData(val g_tt_c: DoubleMatrix) extends java.io.Serializable
 {
+
+  var src_label : Int = 0
+  var dst_label : Int = 0
   // g_tt equals g_tt(x,x')
   var g_tt = g_tt_c.dup()
   var min_gtt_phi: DoubleMatrix = DoubleMatrix.zeros(g_tt.rows, g_tt.columns)
