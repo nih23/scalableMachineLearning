@@ -31,7 +31,7 @@ object DiffusionGraphX
     // TODO: import data of opengm's hdf5 file
     //val benchmark = "snail" // triplepoint4-plain-ring
     //val benchmark = "triplepoint4-plain-ring"
-    val benchmark = "toy3"
+    val benchmark = "toy2"
 
 
     // load edge data (experimental)
@@ -125,7 +125,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       )
       println( black_graph1.vertices.count() )
 
-      val black_min_graph = Graph(newRdd, temp_graph.edges)
+      val black_min_graph = Graph(newRdd, black_graph1.edges)
       println( black_min_graph.vertices.count() )
       val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
         if ( isWhite(vid.toInt,0) ) {
@@ -161,7 +161,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       )
       println( white_graph1.vertices.count() )
 
-      val white_min_graph = Graph(newRdd1, temp_graph.edges)
+      val white_min_graph = Graph(newRdd1, white_graph1.edges)
       println( white_min_graph.vertices.count() )
       val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
         if (isWhite(vid.toInt, 1)) {
@@ -316,7 +316,13 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     println( "srcid: " + srcId.toInt + " weiss? " + isWhite(srcId.toInt,weiss))
     if (isWhite(srcId.toInt, weiss)) {
       //println( "added to vertex: " + srcId.toInt + " key: " + dstId.toInt)
-      src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi.dup() ) )
+      //src_data.phi_tt_g_tt += ( (dstId.toInt, attr.g_tt_phi.dup() ) )
+
+      val new_gtt_phi = attr.g_tt.addColumnVector( src_data.phi_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)) )
+        .addRowVector( dst_data.phi_tt.getOrElse(srcId.toInt, DoubleMatrix.zeros(src_data.g_t.rows)).transpose())
+      println( "added to vertex: " + srcId.toInt + " key: " + dstId.toInt + " with value: " + attr.g_tt_phi.dup() + " new calc " + new_gtt_phi )
+      src_data.phi_tt_g_tt += ( (dstId.toInt, new_gtt_phi ) )
+
       //src_data.phi_tt_g_tt += ((dstId.toInt,
       //  src_data.phi_tt_g_tt.getOrElse(dstId.toInt, DoubleMatrix.zeros(attr.g_tt.rows, attr.g_tt.columns))
       //    .add(attr.g_tt.div(2.0))
