@@ -133,7 +133,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       val black_min_graph = Graph(newRdd, temp_graph.edges)
       println( black_min_graph.vertices.count() )
       // Calculate the sum of the minimum pairwise dual variables g_tt_phi_tt
-      val black_min_graph2 = black_min_graph.mapVertices( (vid,data) => {
+      val black_graph = black_min_graph.mapVertices( (vid,data) => {
         if ( isWhite(vid.toInt,0) ) {
           if ( i != 0 )  data.At.putColumn(0,data.At.fill(0.))
           for ((k, v) <- data.phi_tt_g_tt) {
@@ -142,11 +142,12 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           }
           //println( "A_t: " + data.At + " vid: " + vid.toInt)
         }
-          data
+        val dat = compute_phi( vid, data, 0 )
+        dat
       }  )
       //println( black_min_graph2.vertices.count() )
       // update phis
-      val black_graph = black_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 0) )
+      //val black_graph = black_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 0) )
       //println( black_graph.vertices.count() )
       //+++ White +++
 
@@ -170,7 +171,8 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       val white_min_graph = Graph(newRdd1, black_graph.edges)
       println( white_min_graph.vertices.count() )
-      val white_min_graph2 = white_min_graph.mapVertices( (vid,data) => {
+      // update phis
+      temp_graph = white_min_graph.mapVertices( (vid,data) => {
         if (isWhite(vid.toInt, 1)) {
           //println( "At compuitation phi_tt_gtt: "  + data.phi_tt_g_tt )
           if ( i!= 0 )  data.At.putColumn(0,data.At.fill(0.))
@@ -181,11 +183,12 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
           //println( "A_t: " + data.At + " vid: " + vid.toInt )
 
         }
-        data
+        val dat = compute_phi( vid, data,1 )
+        dat
       }  )
-      println( white_min_graph2.vertices.count() )
+     // println( white_min_graph2.vertices.count() )
       // update phis
-      temp_graph = white_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 1) )
+      //temp_graph = white_min_graph2.mapVertices( (vid,data) => compute_phi(vid, data, 1) )
 
       println( temp_graph.vertices.count() )
       //+++ COMPUTE BOUND +++
