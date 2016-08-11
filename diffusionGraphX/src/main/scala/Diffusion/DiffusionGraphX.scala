@@ -282,13 +282,29 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
      // println("energy edge: " + energy)
       println( temp_graph3.edges.collect() )
       energy += vertice_energy
-      println(i + " -> E " + energy +" B " + bound + "---------------------------------------------")
+
+
+      val gt_term = temp_graph2.vertices.map((vert) => {
+        val minElem = vert._2.At.argmin()
+        vert._2.g_t_c.get(minElem).toDouble
+      }).reduce((gt1, gt2) => gt1 + gt2)
+
+      val gtt_term = temp_graph2.mapTriplets(triplet => {
+        val vd_left = triplet.srcAttr.At.argmin()
+        val vd_right = triplet.dstAttr.At.argmin()
+        val res = triplet.attr.g_tt.get(vd_left, vd_right)
+        res
+      }).edges.map(e1 => e1.attr).reduce((e1, e2) => e1 + e2)
 
       // reset phi_tt_g_tt for fresh compuation in next round
       /*temp_graph = white_graph.mapVertices((vid,data) =>{
         data.phi_tt_g_tt = data.phi_tt_g_tt.empty
         data
       })*/
+
+      val energy2 = gt_term + gtt_term
+
+      println(i + " -> E " + energy + " " + energy2 + " B " + bound + "---------------------------------------------")
 
       val labeling = compute_grid_labeling(temp_graph)
       val labelVisualizer = Figure()
@@ -297,6 +313,14 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       labelVisualizer.subplot(0).xaxis.setTickLabelsVisible(false)
       labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)
     }
+
+    val labeling = compute_grid_labeling(temp_graph)
+    val labelVisualizer = Figure()
+    labelVisualizer.subplot(0) += image(labeling)
+    labelVisualizer.subplot(0).title = "Primal solution"
+    labelVisualizer.subplot(0).xaxis.setTickLabelsVisible(false)
+    labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)
+    println("done")
   }
 
   def compute_grid_labeling(g: Graph[VertexData, EdgeData]): DenseMatrix[Double] = {
