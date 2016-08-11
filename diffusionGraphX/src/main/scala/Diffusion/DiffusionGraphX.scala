@@ -300,7 +300,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }).reduce((gt1, gt2) => gt1 + gt2)
 
       val gtt_term = temp_graph2.mapTriplets(triplet => {
-        if (isWhite(triplet.srcId.toInt, 0) == true) {
+        if (isWhite(triplet.srcId.toInt, 0)) {
           0
         } else {
         val vd_left = triplet.srcAttr.At.argmin()
