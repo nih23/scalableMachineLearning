@@ -1,10 +1,13 @@
 package main.scala.Diffusion
 
 import Diffusion.{EdgeData, VertexData}
+import breeze.linalg.{DenseMatrix, DenseVector}
+import breeze.plot._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.graphx._
 import org.apache.spark.{SparkConf, SparkContext}
 import org.jblas.DoubleMatrix
+
 
 /**
   * first draft of scalable diffusion algorithm based on Apache Spark GraphX
@@ -51,7 +54,7 @@ object DiffusionGraphX
 
 class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer) extends java.io.Serializable {
 
-  val maxIt = 10
+  val maxIt = 5
   val conv_bound = 0.001
 
   def apply() = {
@@ -93,6 +96,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
 
     // Start Min-Sum Diffusion Iteration
+
     for (i <- 0 to maxIt)
     {
       // Firstly, set A_t to g_t after the first iteration At == 0
@@ -286,9 +290,21 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         data
       })*/
 
+      val labeling = compute_grid_labeling(temp_graph)
+      val labelVisualizer = Figure()
+      labelVisualizer.subplot(0) += image(labeling)
+      labelVisualizer.subplot(0).title = "Primal solution of iteration " + i.toString
+      labelVisualizer.subplot(0).xaxis.setTickLabelsVisible(false)
+      labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)
     }
+  }
 
-
+  def compute_grid_labeling(g: Graph[VertexData, EdgeData]): DenseMatrix[Double] = {
+    val vertexArray = g.mapVertices[Integer]((vid, vertexData) => {
+      vertexData.At.argmin().toInt // compute primal solution
+    }).vertices.sortByKey().map(elem => elem._2.toDouble /* we only care about our label */).collect()
+    val noRows = vertexArray.size / lastColumnId
+    DenseVector(vertexArray).toDenseMatrix.reshape(lastColumnId, noRows)
   }
 
   def compute_edge_energy( double : Double, data : Edge[EdgeData] ) : Double = {
