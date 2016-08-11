@@ -267,28 +267,30 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
 
       println( temp_graph2.triplets.count() )
-      println( bound_graph2.vertices.count())
+      println(bound_graph2.vertices.count())
       //energy = temp_graph2.triplets.aggregate[Double](  zeroValue =0.0  )((double,triplet) => {
       // //   println( "srcattr at " + triplet.srcAttr.At +"----------------------")
       //    triplet.attr.g_tt.get( triplet.srcAttr.At.argmin(),triplet.dstAttr.At.argmin() )
       //},
       //  (a,b)=> a+b )
       //println( "other engergy: " + energy)
-      /*val temp_graph3 = temp_graph2.mapTriplets(  triplet => {
-          println(" id: " + triplet.srcId + "argmin: " + triplet.srcAttr.At.argmin() + " At: " + triplet.srcAttr.At + " label " + triplet.srcAttr.label)
-          println(" id: " + triplet.dstId + "argmin: " + triplet.dstAttr.At.argmin() + " At: " + triplet.dstAttr.At + " label " + triplet.dstAttr.label)
-          triplet.attr.src_label = triplet.srcAttr.At.argmin()
-          triplet.attr.dst_label = triplet.dstAttr.At.argmin()
-        triplet.attr
-      } )
+      /*    val temp_graph3 = temp_graph2.mapTriplets(  triplet => {
+              //println(" id: " + triplet.srcId + "argmin: " + triplet.srcAttr.At.argmin() + " At: " + triplet.srcAttr.At + " label " + triplet.srcAttr.label)
+              //println(" id: " + triplet.dstId + "argmin: " + triplet.dstAttr.At.argmin() + " At: " + triplet.dstAttr.At + " label " + triplet.dstAttr.label)
+              triplet.attr.src_label = triplet.srcAttr.At.argmin()
+              triplet.attr.dst_label = triplet.dstAttr.At.argmin()
+            triplet.attr
+          } )
 
-      energy = temp_graph3.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => double + compute_edge_energy(double,data ), (a,b) => a+b )
-    //  println("energy edge: " + energy)
-      println( temp_graph3.edges.collect() )
-     // println("energy edge: " + energy)
-      println( temp_graph3.edges.collect() )
-      energy += vertice_energy
+          energy = temp_graph3.edges.aggregate[Double](zeroValue = 0.0 ) ((double,data) => double + compute_edge_energy(double,data ), (a,b) => a+b )
+        //  println("energy edge: " + energy)
+          println( temp_graph3.edges.collect() )
+         // println("energy edge: " + energy)
+          println( temp_graph3.edges.collect() )
+          energy += vertice_energy
+    */
 
+      energy = vertice_energy + edge_energy
 
       val gt_term = temp_graph2.vertices.map((vert) => {
         val minElem = vert._2.At.argmin()
@@ -296,10 +298,14 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }).reduce((gt1, gt2) => gt1 + gt2)
 
       val gtt_term = temp_graph2.mapTriplets(triplet => {
+        if (isWhite(triplet.srcId.toInt, 0) == true) {
+          0
+        } else {
         val vd_left = triplet.srcAttr.At.argmin()
         val vd_right = triplet.dstAttr.At.argmin()
         val res = triplet.attr.g_tt.get(vd_left, vd_right)
         res
+        }
       }).edges.map(e1 => e1.attr).reduce((e1, e2) => e1 + e2)
 
       // reset phi_tt_g_tt for fresh compuation in next round
