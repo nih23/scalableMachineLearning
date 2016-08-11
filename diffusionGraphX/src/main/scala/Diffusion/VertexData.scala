@@ -10,6 +10,8 @@ class VertexData(var g_t_c: DoubleMatrix) extends java.io.Serializable {
   var noLabels = g_t_c.getRows()
   // vertex id
   var vid : Int = 0
+
+  var label : Int = 0
   //NOT NEEDED var At = DoubleMatrix.zeros(noLabels)
   var min_gtt_phi = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix ]
   // min ( g_tt^phi )
