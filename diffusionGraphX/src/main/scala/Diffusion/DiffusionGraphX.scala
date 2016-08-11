@@ -32,8 +32,8 @@ object DiffusionGraphX
 
 
     // TODO: import data of opengm's hdf5 file
-    val benchmark = "snail" // triplepoint4-plain-ring
-    //val benchmark = "triplepoint4-plain-ring"
+    //val benchmark = "snail" // triplepoint4-plain-ring
+    val benchmark = "triplepoint4-plain-ring"
     //val benchmark = "toy2"
 
 
@@ -222,11 +222,19 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }
       )
 
+
       val vertice_energy = temp_graph2.vertices.aggregate[Double] (zeroValue = 0.0) ((double,data) => {
         //  println( "Compute vertice energy: " + " vid " + data._1 +  " label " + data._2.label + " At " + data._2.At)
           double + data._2.g_t.get( data._2.label )
       }, (a,b) => a+b)
-
+      val edge_energy  = temp_graph2.triplets.aggregate[Double]( zeroValue = 0.0 )((double,triplet) => {
+        var result = double
+        if (isWhite(triplet.srcId.toInt, 0)) {
+         // println( "triplet srcid " + triplet.srcId.toInt + " srclabel  " + triplet.srcAttr.label+ " dstid" + triplet.dstId.toInt + "  dstlabel "  + triplet.dstAttr.label + " edge energy " + triplet.attr.g_tt.get(triplet.srcAttr.label, triplet.dstAttr.label))
+          result += triplet.attr.g_tt.get(triplet.srcAttr.label, triplet.dstAttr.label)
+        }
+        result
+      }, (a,b) => a+b)
 
       val aggregate_v = bound_graph2.aggregateMessages[Double]( triplet => {
         var minimum = 0.0
@@ -260,19 +268,17 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
       println( temp_graph2.triplets.count() )
       println( bound_graph2.vertices.count())
-      energy = temp_graph2.triplets.aggregate[Double](  zeroValue =0.0  )((double,triplet) => {
-       //   println( "srcattr at " + triplet.srcAttr.At +"----------------------")
-          triplet.attr.g_tt.get( triplet.srcAttr.At.argmin(),triplet.dstAttr.At.argmin() )
-      },
-        (a,b)=> a+b )
-     // println( "other engergy: " + energy)
-      val temp_graph3 = temp_graph2.mapTriplets(  triplet => {
-
-         // println(" id: " + triplet.srcId + "argmin: " + triplet.srcAttr.At.argmin() + " At: " + triplet.srcAttr.At + " label " + triplet.srcAttr.label)
-         // println(" id: " + triplet.dstId + "argmin: " + triplet.dstAttr.At.argmin() + " At: " + triplet.dstAttr.At + " label " + triplet.dstAttr.label)
+      //energy = temp_graph2.triplets.aggregate[Double](  zeroValue =0.0  )((double,triplet) => {
+      // //   println( "srcattr at " + triplet.srcAttr.At +"----------------------")
+      //    triplet.attr.g_tt.get( triplet.srcAttr.At.argmin(),triplet.dstAttr.At.argmin() )
+      //},
+      //  (a,b)=> a+b )
+      //println( "other engergy: " + energy)
+      /*val temp_graph3 = temp_graph2.mapTriplets(  triplet => {
+          println(" id: " + triplet.srcId + "argmin: " + triplet.srcAttr.At.argmin() + " At: " + triplet.srcAttr.At + " label " + triplet.srcAttr.label)
+          println(" id: " + triplet.dstId + "argmin: " + triplet.dstAttr.At.argmin() + " At: " + triplet.dstAttr.At + " label " + triplet.dstAttr.label)
           triplet.attr.src_label = triplet.srcAttr.At.argmin()
           triplet.attr.dst_label = triplet.dstAttr.At.argmin()
-
         triplet.attr
       } )
 
