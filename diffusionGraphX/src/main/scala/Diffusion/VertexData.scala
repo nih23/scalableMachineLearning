@@ -1,13 +1,12 @@
 package Diffusion
 
 import org.jblas.DoubleMatrix
-import org.apache.spark.graphx.VertexId
 
 /**
   * Created by nico on 26.07.2016.
   */
-class VertexData(var g_t_c: DoubleMatrix) extends java.io.Serializable {
-  var noLabels = g_t_c.getRows()
+class VertexData(var g_t: DoubleMatrix) extends java.io.Serializable {
+  var noLabels = g_t.getRows()
   // vertex id
   var vid : Int = 0
 
@@ -23,10 +22,10 @@ class VertexData(var g_t_c: DoubleMatrix) extends java.io.Serializable {
   var phi_tt = scala.collection.mutable.HashMap.empty[Int,DoubleMatrix]  // has phi_tt' and phi_t't
 
   // g_t
-  var g_t = g_t_c.dup()
+  //var g_t = g_t_c.dup()
 
   // A_t
-  var At: DoubleMatrix = g_t_c.dup()
+  var At: DoubleMatrix = g_t.dup()
 
   // phi_tt of edges + half of the edge attribute
   var g_t_phi: DoubleMatrix = DoubleMatrix.zeros(noLabels)
