@@ -29,12 +29,12 @@ object DiffusionGraphX
       .set("spark.rdd.compress", "true")
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
       .setAppName("GraphX Min-Sum Diffusion")
-      .setMaster("local[4]")
     val sc = new SparkContext(conf)
 
-
+    println("Benchmark: " + args(0))
+    val benchmark = args(0)
     // TODO: import data of opengm's hdf5 file
-    val benchmark = "snail" // triplepoint4-plain-ring
+    // val benchmark = "snail" // triplepoint4-plain-ring
     //val benchmark = "triplepoint4-plain-ring"
     //val benchmark = "toy2"
 
@@ -46,7 +46,7 @@ object DiffusionGraphX
     val lcid = scala.io.Source.fromFile("benchmark/" + benchmark + "/lcid.txt").getLines().next().toInt
 
     // create graph structure
-    val graph = GraphLoader.edgeListFile(sc, "benchmark/" + benchmark + "/edgeListFile.txt").cache()
+    val graph = GraphLoader.edgeListFile(sc, "benchmark/" + benchmark + "/edgeListFile.txt",false,args(1).toInt).cache()
 
     // initialize and run distributed inference algorithm
     val diffInference = new DiffusionGraphX(graph, noLabelsOfEachVertex, unaryPotentials, pwPotentials, lcid)
@@ -257,12 +257,12 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     }
     println("runtime " + (System.currentTimeMillis() - t_start) + " ms")
 
-    val labeling = compute_grid_labeling(temp_graph)
+    /*val labeling = compute_grid_labeling(temp_graph)
     val labelVisualizer = Figure()
     labelVisualizer.subplot(0) += image(labeling)
     labelVisualizer.subplot(0).title = "Primal solution"
     labelVisualizer.subplot(0).xaxis.setTickLabelsVisible(false)
-    labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)
+    labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)*/
   }
 
   val t_final = System.currentTimeMillis()
