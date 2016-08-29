@@ -29,6 +29,7 @@ object DiffusionGraphX
       .set("spark.rdd.compress", "true")
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
       .setAppName("GraphX Min-Sum Diffusion")
+      .setMaster(args(2))
     val sc = new SparkContext(conf)
 
     println("Benchmark: " + args(0))
@@ -122,7 +123,9 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       ).cache()
 
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph.vertices.count())
+      //TODO Optimize integration of new vertices
       temp_graph = Graph(newRdd, temp_graph.edges).cache()
+      //temp_graph = temp_graph.joinVertices(newRdd)( (vid, vd1, vd2) => vd2 ).cache()
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph.vertices.count())
 
       // Calculate the sum of the minimum pairwise dual variables g_tt_phi_tt
@@ -153,7 +156,11 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         }
       ).cache()
 
+      //TODO Optimize integration of new vertices
       temp_graph = Graph(newRdd1, temp_graph.edges).cache()
+      //temp_graph = temp_graph.joinVertices(newRdd1)( (vid, vd1, vd2) => vd2 ).cache()
+
+
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph.vertices.count())
       // update phis
       temp_graph = temp_graph.mapVertices((vid, data) => {
@@ -288,7 +295,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     if ( isWhite(srcId.toInt, weiss) ) {
       for ((k,v) <- data.phi_tt_g_tt ){
         data.phi_tt += ((k, data.phi_tt.getOrElse(k, DoubleMatrix.zeros(data.g_t.rows))
-                                        .subColumnVector( v.rowMins() )
+          .subColumnVector(v.dup().rowMins())
                                         .addColumnVector( data.At.dup().div( data.out_degree.toDouble ) )) )
       }
     }
