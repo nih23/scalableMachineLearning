@@ -49,7 +49,7 @@ object DiffusionPregel {
 class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer) extends java.io.Serializable {
   val USE_DEBUG_PSEUDO_BARRIER: Boolean = false
   val SHOW_LABELING_IN_ITERATION: Boolean = false
-  val noMaxIter = 50
+  val noMaxIter = 10
   val conv_bound = 0.001
   val t_final = System.currentTimeMillis()
 
@@ -126,43 +126,52 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     val newData: PregelVertexData = new PregelVertexData(data)
     val isActive: Boolean = isWhite(vertexId.toInt, newData.gridWidth, newData.white)
 
+    if (isActive == false) {
+      //TODO **********
+      //TODO compute bound
+      //TODO **********
+
+      // update white/black state
+      newData.white = (newData.white + 1) % 2
+      newData.iteration += 1
+      return newData
+    }
+
     // **********
     // update g_tt_phi for each neighbour
     // **********
-    if (isActive) {
-      for ((neighbourId, phi_tt) <- newData.phi_tt) {
-        // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
-        val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addColumnVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
-        newData.phi_tt_g_tt(neighbourId) = phi_tt_g_tt
-      }
+    for ((neighbourId, phi_tt) <- newData.phi_tt) {
+      // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
+      val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addColumnVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
+      newData.phi_tt_g_tt(neighbourId) = phi_tt_g_tt
     }
+
 
     // **********
     // update A_t
     // **********
     // Calculate the sum of the minimum pairwise dual variables g_tt_phi_tt
-    if (isActive) {
-      newData.At.putColumn(0, newData.g_t) // g_t is empty from the 2nd iteration on
-      for ((neighbourId, phi_tt) <- newData.phi_tt_g_tt) {
-        newData.At.addiColumnVector(phi_tt.rowMins())
-      }
-
-      // clear g_t as it is now contained in the floating messages
-      newData.g_t.subiColumnVector(newData.g_t)
+    newData.At.putColumn(0, newData.g_t) // g_t is empty from the 2nd iteration on
+    for ((neighbourId, phi_tt) <- newData.phi_tt_g_tt) {
+      newData.At.addiColumnVector(phi_tt.rowMins())
     }
+
+    // clear g_t as it is now contained in the floating messages
+    newData.g_t.subiColumnVector(newData.g_t)
+
 
     // **********
     // update phi_tt'
     // **********
-    if (isActive) {
-      for ((neighbourId, g_tt_phi) <- newData.phi_tt_g_tt) {
-        newData.phi_tt += ((neighbourId,
-          newData.phi_tt(neighbourId)
-            .subColumnVector(g_tt_phi.rowMins())
-            .addColumnVector(newData.At.dup().div(newData.out_degree.toDouble)).dup()
-          ))
-      }
+
+    for ((neighbourId, g_tt_phi) <- newData.phi_tt_g_tt) {
+      newData.phi_tt += ((neighbourId,
+        newData.phi_tt(neighbourId)
+          .subColumnVector(g_tt_phi.rowMins())
+          .addColumnVector(newData.At.dup().div(newData.out_degree.toDouble)).dup()
+        ))
     }
+
 
     // update white/black state
     newData.white = (newData.white + 1) % 2
