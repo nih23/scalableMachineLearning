@@ -25,13 +25,11 @@ object DiffusionPregel {
     val conf = new SparkConf()
       //.set("spark.rdd.compress", "true")
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-      .setAppName("GraphX Min-Sum Diffusion")
+      .setAppName("PREGEL Min-Sum Diffusion")
       .setMaster(args(2))
     val sc = new SparkContext(conf)
-
     val benchmark = args(0)
-    println("Benchmark: " + benchmark)
-
+    println("Dataset: " + benchmark)
 
     // load edge data
     val pwPotentials: DoubleMatrix = DoubleMatrix.loadCSVFile("benchmark/" + benchmark + "/pwFactors.csv")
@@ -51,7 +49,7 @@ object DiffusionPregel {
 class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer) extends java.io.Serializable {
   val USE_DEBUG_PSEUDO_BARRIER: Boolean = false
   val SHOW_LABELING_IN_ITERATION: Boolean = false
-  val noMaxIter = 5
+  val noMaxIter = 50
   val conv_bound = 0.001
   val t_final = System.currentTimeMillis()
 
@@ -96,22 +94,26 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         data.initPhiTT(idsNeighbours.get.map(v => v.toInt))
         data
       }
-    }.mapEdges(e => edges)
+    }
 
     // *****
     // Start Min-Sum Diffusion Iteration
     // *****
-
+    println("*************")
+    println("GraphX/PREGEL Min-Sum Diffusion")
+    println("*************")
     val initialMessage = mutable.HashMap[Int, DoubleMatrix]()
-
     val t_start = System.currentTimeMillis()
-    val min = preprocessed_graph.pregel(initialMessage, noMaxIter, EdgeDirection.Both)(vprog, sendMsg, mergeMsg)
+    val min = preprocessed_graph.cache().pregel(initialMessage, noMaxIter, EdgeDirection.Out)(vprog, sendMsg, mergeMsg)
     val t_conv = System.currentTimeMillis()
     println("runtime " + (t_conv - t_start) + " ms")
 
     // compute primal solution
 
-    /*val labeling = compute_grid_labeling(temp_graph)
+
+    /*
+    // visualize primal solution
+    val labeling = compute_grid_labeling(temp_graph)
     val labelVisualizer = Figure()
     labelVisualizer.subplot(0) += image(labeling)
     labelVisualizer.subplot(0).title = "Primal solution"
@@ -119,21 +121,15 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)*/
   }
 
-  // update local phi_tt data structure and re-compute all dependent variables
+  // update phi_tt given phi_tt messages of neighbouring nodes
   def vprog(vertexId: VertexId, data: PregelVertexData, phi_tt_neighbours: mutable.HashMap[Int, DoubleMatrix]): PregelVertexData = {
-    // TODO maybe rewrite phi_tt in order to reflect actual structure: ((int, int), DoubleMatrix) ((t,t'),(phi_tt'))
-    var newData: PregelVertexData = data
-
-    // TODO remove debug output
-    if (vertexId.toInt == 0) {
-      println()
-    }
-
+    val newData: PregelVertexData = new PregelVertexData(data)
+    val isActive: Boolean = isWhite(vertexId.toInt, newData.gridWidth, newData.white)
 
     // **********
-    // update phi_tt_g_tt for each neighbour locally
+    // update g_tt_phi for each neighbour
     // **********
-    if (isWhite(vertexId.toInt, newData.gridWidth, newData.white)) {
+    if (isActive) {
       for ((neighbourId, phi_tt) <- newData.phi_tt) {
         // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
         val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addColumnVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
@@ -145,43 +141,36 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     // update A_t
     // **********
     // Calculate the sum of the minimum pairwise dual variables g_tt_phi_tt
-    if (isWhite(vertexId.toInt, newData.gridWidth, newData.white)) {
+    if (isActive) {
       newData.At.putColumn(0, newData.g_t) // g_t is empty from the 2nd iteration on
-      for ((neighbourId, phi_tt) <- newData.phi_tt) {
+      for ((neighbourId, phi_tt) <- newData.phi_tt_g_tt) {
         newData.At.addiColumnVector(phi_tt.rowMins())
       }
 
-      // clear g_t as it is already contained in the floating messages
-      // TODO find improved expression
+      // clear g_t as it is now contained in the floating messages
       newData.g_t.subiColumnVector(newData.g_t)
     }
 
     // **********
     // update phi_tt'
     // **********
-    if (isWhite(vertexId.toInt, newData.gridWidth, newData.white)) {
-      for ((neighbourId, phi_tt) <- newData.phi_tt) {
+    if (isActive) {
+      for ((neighbourId, g_tt_phi) <- newData.phi_tt_g_tt) {
         newData.phi_tt += ((neighbourId,
           newData.phi_tt(neighbourId)
-            .subColumnVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)).rowMins())
-            .addColumnVector(newData.At.dup().div(newData.out_degree.toDouble))
+            .subColumnVector(g_tt_phi.rowMins())
+            .addColumnVector(newData.At.dup().div(newData.out_degree.toDouble)).dup()
           ))
       }
     }
 
     // update white/black state
     newData.white = (newData.white + 1) % 2
-    newData.touched += 1
+    newData.iteration += 1
 
-    // TODO remove debug output
-    if (vertexId.toInt == 0) {
-      printPhiTT(vertexId.toInt, newData.phi_tt)
-    }
-
-    // **********
-    // compute bound
-    // **********
-    // TODO: optimize bound computation -> seems that we need additional messages w/ phi_tt_g_tt
+    //TODO **********
+    //TODO compute bound
+    //TODO **********
 
     // **********
     // return updated vertex
@@ -189,28 +178,34 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     newData
   }
 
-  def printPhiTT(vertId: Int, phi_tt: mutable.HashMap[Int, DoubleMatrix]): Unit = {
-    for ((neighbourId, phi_tt) <- phi_tt) {
-      println("phi_" + vertId + "," + neighbourId + " -> " + phi_tt)
-    }
+  def isWhite(srcId: Int, gridWidth: Int, weiss: Int): Boolean = {
+    ((((srcId % gridWidth) + (srcId / gridWidth)) % 2)) == weiss
   }
 
-  // user defined function to determine the messages to send out for the next iteration and where to send it to.
-  def sendMsg(triplet: EdgeTriplet[PregelVertexData, EdgeData]): Iterator[(VertexId, mutable.HashMap[Int, DoubleMatrix])] = {
+  // send updated phi_tt' to neighbouring nodes t'
+  def sendMsg(triplet: EdgeTriplet[PregelVertexData, Int]): Iterator[(VertexId, mutable.HashMap[Int, DoubleMatrix])] = {
     val srcVtx: PregelVertexData = triplet.srcAttr
     val dstId: VertexId = triplet.dstId
-    // send empty in case we didn't alter the data structure due to grid partitioning
-    if (srcVtx.vid == 0) {
-      println("test")
+    val srcId: VertexId = triplet.srcId
+    val activeNextRound: Boolean = isWhite(srcId.toInt, srcVtx.gridWidth, srcVtx.white)
+
+    if (srcVtx.vid < 2) {
+      if (activeNextRound == false) println("\nI " + srcVtx.iteration + " updated phi_" + srcId.toInt + "," + dstId.toInt + " -> " + srcVtx.phi_tt(dstId.toInt))
     }
-    // TODO check if some key is not found.. if so this indicates that the graph aint initialized properly
+
+    // we only send new phi_tt if its actually updated
+    // this behaviour is required to guarantee convergence in case of checker board parallelism
+    if (activeNextRound == true) {
+      val dstData = mutable.HashMap[Int, DoubleMatrix]((triplet.srcId.toInt, DoubleMatrix.zeros(srcVtx.noLabels)))
+      return Iterator((triplet.dstId, dstData))
+    }
+
     val dstData = mutable.HashMap[Int, DoubleMatrix]((triplet.srcId.toInt, srcVtx.phi_tt(dstId.toInt)))
     Iterator((triplet.dstId, dstData))
   }
 
   // merge multiple messages arriving at the same vertex at the start of a superstep
   // before applying the vertex program vprog
-  // Here: Compute At
   def mergeMsg(msg1: mutable.HashMap[Int, DoubleMatrix], msg2: mutable.HashMap[Int, DoubleMatrix]): mutable.HashMap[Int, DoubleMatrix] = {
     for ((k, v) <- msg2) {
       msg1(k) = v
@@ -221,22 +216,22 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   def mapNode(data: PregelVertexData, out_degree: Int, vid: Int): PregelVertexData = {
     data.out_degree = out_degree
     data.vid = vid
-    if (vid == 0) {
-      println()
-    }
     data
   }
 
+  def printPhiTT(vertId: Int, phi_tt: mutable.HashMap[Int, DoubleMatrix]): Unit = {
+    for ((neighbourId, phi_tt) <- phi_tt) {
+      println("phi_" + vertId + "," + neighbourId + " -> " + phi_tt)
+    }
+  }
+
+  //TODO prolly broken
   def compute_grid_labeling(g: Graph[PregelVertexData, EdgeData]): DenseMatrix[Double] = {
     val vertexArray = g.mapVertices[Integer]((vid, vertexData) => {
       vertexData.At.argmin() // compute primal solution
     }).vertices.sortByKey().map(elem => elem._2.toDouble /* we only care about our label */).collect()
     val noRows = vertexArray.size / lastColumnId
     DenseVector(vertexArray).toDenseMatrix.reshape(lastColumnId, noRows)
-  }
-
-  def isWhite(srcId: Int, gridWidth: Int, weiss: Int): Boolean = {
-    ((((srcId % gridWidth) + (srcId / gridWidth)) % 2)) == weiss
   }
 
 }

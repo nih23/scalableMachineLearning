@@ -9,7 +9,7 @@ class PregelVertexData(var g_t: DoubleMatrix, var g_tt: DoubleMatrix, var white:
   var noLabels = g_t.getRows()
   // vertex id
   var vid: Int = 0
-  var touched: Int = 0
+  var iteration: Int = 0
   var label: Int = 0
   //NOT NEEDED var At = DoubleMatrix.zeros(noLabels)
   var min_gtt_phi = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
@@ -50,10 +50,18 @@ class PregelVertexData(var g_t: DoubleMatrix, var g_tt: DoubleMatrix, var white:
     this
   }
 
+  // copy constructor
+  def this(copyObject: PregelVertexData) {
+    this(copyObject.g_t.dup(), copyObject.g_tt.dup(), copyObject.white, copyObject.gridWidth)
+    this.phi_tt = copyObject.phi_tt.clone()
+    this.vid = copyObject.vid
+    this.iteration = copyObject.iteration
+    this.out_degree = copyObject.out_degree
+  }
+
   def initPhiTT(neighbourIds: Array[Int]): Unit = {
     for (k <- neighbourIds) {
       phi_tt(k) = DoubleMatrix.zeros(noLabels)
     }
   }
-
 }
