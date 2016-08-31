@@ -57,6 +57,7 @@ class PregelVertexData(var g_t: DoubleMatrix, var g_tt: DoubleMatrix, var white:
     this.vid = copyObject.vid
     this.iteration = copyObject.iteration
     this.out_degree = copyObject.out_degree
+    this.label = copyObject.label
   }
 
   def initPhiTT(neighbourIds: Array[Int]): Unit = {

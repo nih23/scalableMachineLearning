@@ -35,9 +35,6 @@ object DiffusionGraphX
     println("Benchmark: " + args(0))
     val benchmark = args(0)
     // TODO: import data of opengm's hdf5 file
-    // val benchmark = "snail" // triplepoint4-plain-ring
-    //val benchmark = "triplepoint4-plain-ring"
-    //val benchmark = "toy2"
 
 
     // load edge data (experimental)
@@ -60,8 +57,9 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   val SHOW_LABELING_IN_ITERATION: Boolean = false
 
 
-  val maxIt = 5
+  val maxIt = 10
   val conv_bound = 0.001
+  val t_final = System.currentTimeMillis()
 
   def apply() = {
 
@@ -123,7 +121,6 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       ).cache()
 
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph.vertices.count())
-      //TODO Optimize integration of new vertices
       temp_graph = Graph(newRdd, temp_graph.edges).cache()
       //temp_graph = temp_graph.joinVertices(newRdd)( (vid, vd1, vd2) => vd2 ).cache()
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph.vertices.count())
@@ -238,14 +235,13 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         var minimum = double._2
         if (isWhite(triplet.srcId.toInt, 0)) {
           result += triplet.attr.g_tt.get(triplet.srcAttr.label, triplet.dstAttr.label) //+ triplet.srcAttr.g_t.get(triplet.srcAttr.label) ///2 + triplet.dstAttr.g_t.get(triplet.dstAttr.label)/2
-
           val new_gtt_phi = triplet.attr.g_tt.addColumnVector(triplet.srcAttr.phi_tt.getOrElse(triplet.dstId.toInt, DoubleMatrix.zeros(triplet.srcAttr.g_t.rows)))
             .addRowVector(triplet.dstAttr.phi_tt.getOrElse(triplet.srcId.toInt, DoubleMatrix.zeros(triplet.srcAttr.g_t.rows)).transpose())
           minimum += new_gtt_phi.rowMins().min()
         }
         (result, minimum)
       }, (a, b) => (a._1 + b._1, a._2 + b._2))
-      energy = edge_energy._1 + vertice_energy
+      energy = edge_energy._1
       bound = edge_energy._2
 
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph2.triplets.count())
@@ -271,8 +267,6 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     labelVisualizer.subplot(0).xaxis.setTickLabelsVisible(false)
     labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)*/
   }
-
-  val t_final = System.currentTimeMillis()
 
   def compute_grid_labeling(g: Graph[VertexData, EdgeData]): DenseMatrix[Double] = {
     val vertexArray = g.mapVertices[Integer]((vid, vertexData) => {
