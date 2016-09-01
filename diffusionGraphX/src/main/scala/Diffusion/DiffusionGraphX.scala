@@ -57,7 +57,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   val SHOW_LABELING_IN_ITERATION: Boolean = false
 
 
-  val maxIt = 10
+  val maxIt = 49
   val conv_bound = 0.001
   val t_final = System.currentTimeMillis()
 
@@ -241,7 +241,7 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         }
         (result, minimum)
       }, (a, b) => (a._1 + b._1, a._2 + b._2))
-      energy = edge_energy._1
+      energy = edge_energy._1 + vertice_energy
       bound = edge_energy._2
 
       if (USE_DEBUG_PSEUDO_BARRIER) println(temp_graph2.triplets.count())
@@ -285,6 +285,10 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     src_data
   }
 
+  def isWhite(srcId: Int, weiss: Int): Boolean = {
+    ((((srcId % lastColumnId) + (srcId / lastColumnId)) % 2)) == weiss
+  }
+
   def compute_phi( srcId: VertexId, data : VertexData, weiss: Int ) : VertexData = {
     if ( isWhite(srcId.toInt, weiss) ) {
       for ((k,v) <- data.phi_tt_g_tt ){
@@ -294,10 +298,6 @@ class DiffusionGraphX(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }
     }
     data
-  }
-
-  def isWhite(srcId: Int, weiss: Int): Boolean = {
-    ((((srcId % lastColumnId) + (srcId / lastColumnId)) % 2) ) == weiss
   }
 
   def mapNode(data: VertexData, out_degree: Int, vid: Int): VertexData = {
