@@ -20,42 +20,16 @@ class PregelVertexData(var g_t: DoubleMatrix, var g_tt: DoubleMatrix, var white:
   var g_tt_phi = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
   // Contains messages to every neighbor
   var phi_tt = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix] // has phi_tt' and phi_t't
-
-  // g_t
-  //var g_t = g_t_c.dup()
-
   // A_t
   var At: DoubleMatrix = g_t.dup()
-
   // phi_tt of edges + half of the edge attribute
   var g_t_phi: DoubleMatrix = DoubleMatrix.zeros(noLabels)
-  //for bound computation
-  var weight: Double = 0.0
-
-  def +(that: PregelVertexData) = {
-
-    for ((k, v) <- that.g_tt_phi) {
-      if (this.g_tt_phi.contains(k) && (v.norm2() < g_tt_phi(k).norm2())) {
-        g_tt_phi(k) = v
-      }
-      this.g_tt_phi += ((k, v))
-    }
-
-    for ((k, v) <- that.min_gtt_phi) {
-      if (this.min_gtt_phi.contains(k) && (v.norm2() < min_gtt_phi(k).norm2())) {
-        min_gtt_phi(k) = v
-      }
-      this.min_gtt_phi += ((k, v))
-    }
-
-    this
-  }
 
   // copy constructor
   def this(copyObject: PregelVertexData) {
-    this(copyObject.g_t.dup(), copyObject.g_tt.dup(), copyObject.white, copyObject.gridWidth)
-    this.g_tt_phi = copyObject.g_tt_phi.clone()
-    this.phi_tt = copyObject.phi_tt.clone()
+    this(copyObject.g_t, copyObject.g_tt, copyObject.white, copyObject.gridWidth)
+    this.g_tt_phi = copyObject.g_tt_phi
+    this.phi_tt = copyObject.phi_tt
     this.vid = copyObject.vid
     this.iteration = copyObject.iteration
     this.out_degree = copyObject.out_degree

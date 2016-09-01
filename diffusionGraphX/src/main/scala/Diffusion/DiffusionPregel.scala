@@ -26,7 +26,7 @@ object DiffusionPregel {
     Logger.getLogger("akka").setLevel(Level.OFF)
 
     val conf = new SparkConf()
-      .set("spark.rdd.compress", "true")
+      //.set("spark.rdd.compress", "true")
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
       .setAppName("PREGEL Min-Sum Diffusion")
       .setMaster(args(2))
@@ -44,7 +44,7 @@ object DiffusionPregel {
     val graph = GraphLoader.edgeListFile(sc, "benchmark/" + benchmark + "/edgeListFile.txt", false, args(1).toInt).cache()
 
     // initialize diffusion data structures
-    val noIterPerBndComputation = 100
+    val noIterPerBndComputation = 24
     val noIter = noIterPerBndComputation
     val conv = 1e-4
     val boundArray = sc.accumulator[Array[Double]](Array.ofDim[Double](Math.floor((noIter.toDouble - 1) / 2).toInt))(new DoubleArrayAccumulator)
@@ -72,17 +72,14 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     var sel = 0
     for (vertexId <- 0 to noLabelsOfEachVertex.rows - 1) {
       val noLabels = noLabelsOfEachVertex.get(vertexId)
+      val g_t_xt: DoubleMatrix = DoubleMatrix.zeros(noLabels.toInt)
 
-      //TODO WHY DO WE ACTUALLY NEED THIS CONTAINER?
-      var g_t_xt: DoubleMatrix = DoubleMatrix.zeros(noLabels.toInt)
-
-      //TODO WHY DO WE ACTUALLY NEED THIS CONTAINER?
       // construct g_t_xt array for the current vertex
       for (label <- 0 to noLabels.toInt - 1) {
         g_t_xt.put(label, unaryPotentials.get(sel))
         sel += 1
       }
-      // add g_t_x_t to hashmap (to assign later the right vertexdata to the corresponding vertex)
+      // assign unary factor to the corresponding vertex
       g_t += ((vertexId, g_t_xt))
     }
 
@@ -120,12 +117,8 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
     for (i <- 0 to pregelRuns) {
       println("chunk " + i + "/" + pregelRuns)
-      // pregel/msd
-
       preprocessed_graph = preprocessed_graph.cache().pregel(initialMessage, noIterPerBndComputation - 1, EdgeDirection.Out)(vprog, sendMsg, mergeMsg)
-
-
-      // inform pregel that we are about to continue our computations
+      // notify pregel that we are about to continue our computations
       // while the next iterations
       if (i == 0) {
         initialMessage(-1) = DoubleMatrix.EMPTY
@@ -145,20 +138,22 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         case _ => eps = Double.MaxValue
       }
       println("I " + firstZero + " B: " + bnd(firstZero - 1).toString() + " eps: " + eps)
+      println("B " + boundArray.value.toSeq.toString())
       println("E " + energyArray.value.toSeq.toString())
-      val idx = (0 to firstZero - 1).map(f => f.toDouble)
-      val yval = bnd.toList.slice(0, idx.last.toInt + 1)
-      val yval2 = en.toList.slice(0, idx.last.toInt + 1)
-
-      val visualizer = Figure()
-      visualizer.clear()
-      val p = visualizer.subplot(0)
-      p += plot(idx, yval)
-      p += plot(idx, yval2)
 
       //TODO: test if conv bnd reached
 
       if (SHOW_LABELING_IN_ITERATION) {
+        val idx = (0 to firstZero - 1).map(f => f.toDouble)
+        val yval = bnd.toList.slice(0, idx.last.toInt + 1)
+        val yval2 = en.toList.slice(0, idx.last.toInt + 1)
+
+        val visualizer = Figure()
+        visualizer.clear()
+        val p = visualizer.subplot(0)
+        p += plot(idx, yval)
+        p += plot(idx, yval2)
+
         val labeling = compute_grid_labeling(preprocessed_graph)
         val labelVisualizer = Figure()
         labelVisualizer.subplot(0) += image(labeling)
@@ -168,10 +163,6 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }
     }
     println("runtime " + (System.currentTimeMillis() - t_start) + " ms")
-
-    println()
-    // compute primal solution
-
 
     /*
     // visualize (final) primal solution
@@ -183,10 +174,11 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     labelVisualizer.subplot(0).yaxis.setTickLabelsVisible(false)*/
   }
 
+  //TODO there seems to be a bug while iteration splitting
   // update phi_tt given phi_tt messages of neighbouring nodes
   def vprog(vertexId: VertexId, data: PregelVertexData, phi_tt_neighbours: mutable.HashMap[Int, DoubleMatrix]): PregelVertexData = {
     val newData: PregelVertexData = new PregelVertexData(data)
-    val isActive: Boolean = isWhite(vertexId.toInt, newData.gridWidth, newData.white)
+    val isActive: Boolean = isActiveNode(vertexId.toInt, newData.gridWidth, newData.white)
 
     // key -1 indicates that pregel was paused for bound/energy computation
     // and is about to continue its computations
@@ -195,39 +187,37 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       return newData
     }
 
-    if (isActive == true) {
-      // **********
-      // update g_tt_phi for each neighbour
-      // **********
-      for ((neighbourId, phi_tt) <- newData.phi_tt) {
-        // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
-        val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addRowVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
-        newData.g_tt_phi(neighbourId) = phi_tt_g_tt
-        //println(vertexId.toInt + "-" + neighbourId.toInt + "-" + isActive + " :" + phi_tt_g_tt)
-      }
-    }
-
-    //*******
-    // compute primal energy (vertex)
-    //*******
-    val enArraySz = energyArray.localValue.length
-    val enUpd = Array.ofDim[Double](enArraySz)
-    if (newData.iteration > 1 && ((newData.iteration - 1) % 2) == 1) {
+    //*************************************************
+    // compute primal energy (unary terms) and bound
+    //*************************************************
+    val lAt = DoubleMatrix.zeros(newData.noLabels)
+    if (updateEnergyEstimates(newData.iteration)) {
+      val enArraySz = energyArray.localValue.length
+      val enUpd = Array.ofDim[Double](enArraySz)
+      val bndUpd = Array.ofDim[Double](enArraySz)
       val bndUpdIdx = Math.floor((newData.iteration - 1) / 2).toInt
       // GTT PHI UPDATE
+      // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
       for ((neighbourId, phi_tt) <- newData.phi_tt) {
-        // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
+
         val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addRowVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
         data.g_tt_phi(neighbourId) = phi_tt_g_tt
       }
 
-      // AT UPDATE
-      val lAt = DoubleMatrix.zeros(newData.noLabels)
+      // compute new A_t
       if (newData.iteration < 2) {
         lAt.putColumn(0, data.g_t) // g_t is empty from the 2nd iteration on
       }
+
+      // compute dual energy and update bound
       for ((k, v) <- data.g_tt_phi) {
-        lAt.addiColumnVector(v.rowMins())
+        val rMin = v.rowMins()
+        lAt.addiColumnVector(rMin)
+        bndUpd(bndUpdIdx) += rMin.min()
+      }
+      // prevent double counting of the same min. pairwise dual factor
+      if (isActive) {
+        boundArray += bndUpd
       }
       val lbl = lAt.argmin()
       newData.labelForEnergyCompuytation = lbl
@@ -242,19 +232,32 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       return newData
     }
 
-    // **********
-    // update A_t
-    // **********
+    // ******************************
+    // update g_tt_phi and A_t
+    // ******************************
     // Calculate the sum of the minimum pairwise dual variables g_tt_phi_tt
-    if (newData.iteration < 2) {
-      newData.At.putColumn(0, newData.g_t) // g_t is empty from the 2nd iteration on
+    if (lAt.max() > 0) {
+      // take g_tt_phi and A_t estimate of primal energy computation
+      newData.g_tt_phi = data.g_tt_phi
+      newData.At = lAt
     } else {
-      newData.At.putColumn(0, DoubleMatrix.zeros(newData.noLabels)) // g_t is empty from the 2nd iteration on
-    }
-    for ((neighbourId, phi_tt) <- newData.g_tt_phi) {
-      newData.At.addiColumnVector(phi_tt.rowMins())
-    }
+      // compute g_tt_phi
+      // g_tt_phi = g_tt' + phi_tt' + phi_t't
+      for ((neighbourId, phi_tt) <- newData.phi_tt) {
+        val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addRowVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
+        newData.g_tt_phi(neighbourId) = phi_tt_g_tt
+      }
 
+      // update A_t
+      if (newData.iteration < 2) {
+        newData.At.putColumn(0, newData.g_t) // g_t is empty from the 2nd iteration on
+      } else {
+        newData.At.putColumn(0, DoubleMatrix.zeros(newData.noLabels)) // g_t is empty from the 2nd iteration on
+      }
+      for ((neighbourId, phi_tt) <- newData.g_tt_phi) {
+        newData.At.addiColumnVector(phi_tt.rowMins())
+      }
+    }
     newData.label = newData.At.argmin()
 
 
@@ -265,24 +268,13 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       newData.phi_tt += ((neighbourId,
         newData.phi_tt(neighbourId)
           .subColumnVector(g_tt_phi.rowMins())
-          .addColumnVector(newData.At.dup().div(newData.out_degree.toDouble)).dup()
+          .addColumnVector(newData.At.div(newData.out_degree.toDouble))
         ))
     }
 
-    //**********
-    //compute bound
-    //**********
-    val arraySz = boundArray.localValue.length
-    val bndUpd = Array.ofDim[Double](arraySz)
-    if (newData.iteration > 1 && ((newData.iteration - 1) % 2) == 1) {
-      val bndUpdIdx = Math.floor((newData.iteration - 1) / 2).toInt
-      for ((k, v) <- newData.g_tt_phi) {
-        bndUpd(bndUpdIdx) += v.rowMins().min()
-      }
-      boundArray += bndUpd
-    }
-
+    // **********
     // update white/black state
+    // **********
     newData.white = (newData.white + 1) % 2
     newData.iteration += 1
 
@@ -292,18 +284,36 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     newData
   }
 
+  def updateEnergyEstimates(iter: Int): Boolean = {
+    iter > 1 && ((iter - 1) % 2) == 1
+  }
+
+  def isActiveNode(srcId: Int, gridWidth: Int, weiss: Int): Boolean = {
+    ((((srcId % gridWidth) + (srcId / gridWidth)) % 2)) == weiss
+  }
+
   // send updated phi_tt' to neighbouring nodes t'
   def sendMsg(triplet: EdgeTriplet[PregelVertexData, Int]): Iterator[(VertexId, mutable.HashMap[Int, DoubleMatrix])] = {
     val srcVtx: PregelVertexData = triplet.srcAttr
     val dstVtx: PregelVertexData = triplet.dstAttr
     val dstId: VertexId = triplet.dstId
     val srcId: VertexId = triplet.srcId
-    val activeNextRound: Boolean = isWhite(srcId.toInt, srcVtx.gridWidth, srcVtx.white)
+    val activeNextRound: Boolean = isActiveNode(srcId.toInt, srcVtx.gridWidth, srcVtx.white)
 
-    //TODO commented out for debugging reasons
-    // we only send new phi_tt if its actually updated
+    // compute primal energy of pairwise factors
+    if (updateEnergyEstimates(srcVtx.iteration) == false) {
+      val enArraySz = energyArray.localValue.length
+      val enUpd = Array.ofDim[Double](enArraySz)
+      val bndUpdIdx = Math.floor((srcVtx.iteration - 1) / 2).toInt - 1
+      if (srcId < dstId && srcVtx.iteration > 2 && (((srcVtx.iteration - 1) % 2) == 0) && (bndUpdIdx < enArraySz)) {
+        enUpd(bndUpdIdx) = dstVtx.g_tt.get(srcVtx.labelForEnergyCompuytation, dstVtx.labelForEnergyCompuytation)
+        energyArray += enUpd
+      }
+    }
+
+    // we only send new phi_tt if its actually updated and not required for primal energy computation
     // this behaviour is required to guarantee convergence in case of checker board parallelism
-    /*if (activeNextRound == true) {
+    if (activeNextRound == true && updateEnergyEstimates(srcVtx.iteration) == false) {
       // PREGEL forces us to send at least one message to each node that shall be used during next round
       val maxKey = triplet.dstAttr.phi_tt.keySet.max.toInt
       if (srcId.toInt == maxKey) {
@@ -312,24 +322,11 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       } else {
         return Iterator()
       }
-    }*/
-
-
-    val enArraySz = energyArray.localValue.length
-    val enUpd = Array.ofDim[Double](enArraySz)
-    val bndUpdIdx = Math.floor((srcVtx.iteration - 1) / 2).toInt - 1
-    if (srcId < dstId && srcVtx.iteration > 2 && (((srcVtx.iteration - 1) % 2) == 0) && (bndUpdIdx < enArraySz)) {
-      enUpd(bndUpdIdx) = dstVtx.g_tt.get(srcVtx.labelForEnergyCompuytation, dstVtx.labelForEnergyCompuytation)
-      energyArray += enUpd
     }
 
-    // send updated phi_tt to neighbouring nodes
+    // send updated phi_tt vectors to our neighbour dst
     val dstData = mutable.HashMap[Int, DoubleMatrix]((triplet.srcId.toInt, srcVtx.phi_tt(dstId.toInt)))
     Iterator((triplet.dstId, dstData))
-  }
-
-  def isWhite(srcId: Int, gridWidth: Int, weiss: Int): Boolean = {
-    ((((srcId % gridWidth) + (srcId / gridWidth)) % 2)) == weiss
   }
 
   // merge multiple messages arriving at the same vertex at the start of a superstep
@@ -353,13 +350,6 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     val noRows = vertexArray.size / lastColumnId
     DenseVector(vertexArray).toDenseMatrix.reshape(lastColumnId, noRows)
   }
-
-  def printPhiTT(vertId: Int, phi_tt: mutable.HashMap[Int, DoubleMatrix]): Unit = {
-    for ((neighbourId, phi_tt) <- phi_tt) {
-      println("phi_" + vertId + "," + neighbourId + " -> " + phi_tt)
-    }
-  }
-
 }
 
 class DoubleArrayAccumulator extends AccumulatorParam[Array[Double]] {
