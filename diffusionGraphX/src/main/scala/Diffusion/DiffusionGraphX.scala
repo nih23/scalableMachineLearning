@@ -1,6 +1,5 @@
 package main.scala.Diffusion
 
-import Diffusion.{EdgeData, VertexData}
 import breeze.linalg.{DenseMatrix, DenseVector}
 import breeze.plot._
 import org.apache.log4j.{Level, Logger}

@@ -1,4 +1,4 @@
-package Diffusion
+package main.scala.Diffusion
 
 import org.jblas.DoubleMatrix
 

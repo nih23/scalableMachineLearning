@@ -1,16 +1,21 @@
-package Diffusion
+package main.scala.Diffusion
 
 import java.security.InvalidParameterException
+import java.util
 
 import breeze.linalg.{DenseMatrix, DenseVector}
 import breeze.plot._
+import com.esotericsoftware.kryo.Kryo
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.graphx._
-import org.apache.spark.{Accumulator, AccumulatorParam, SparkConf, SparkContext}
+import org.apache.spark.serializer.KryoRegistrator
+import org.apache.spark.storage.StorageLevel
+import org.apache.spark.util.CollectionAccumulator
+import org.apache.spark.{AccumulatorParam, SparkConf, SparkContext}
 import org.jblas.DoubleMatrix
 
+import scala.collection.JavaConversions._
 import scala.collection.mutable
-
 
 /**
   * reduction of Min-Sum Diffusion algorithm to Pregel/Pagerank Distributed Computation Pattern
@@ -18,16 +23,43 @@ import scala.collection.mutable
   * @author Nico Hoffmann, Benjamin Naujoks
   */
 
+class DiffKryoRegistrator extends KryoRegistrator {
+  override def registerClasses(kryo: Kryo) {
+    kryo.register(classOf[PregelVertexData])
+    kryo.register(classOf[Array[PregelVertexData]])
+    kryo.register(classOf[Array[Double]])
+    kryo.register(classOf[org.jblas.DoubleMatrix])
+    //kryo.register(classOf[VertexAttributeBlock])
+  }
+}
+
 object DiffusionPregel {
+
+  var noNodes: Int = -1
+
+
 
   def main(args: Array[String]): Unit = {
     // toggle debug output
+
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
 
     val conf = new SparkConf()
-      //.set("spark.rdd.compress", "true")
+      .set("spark.rdd.compress", "true")
       .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      .set("spark.kryoserializer.buffer", "1024k")
+      //.set("spark.kryo.registrationRequired","true")
+      .set("spark.kryo.classesToRegister", "org.apache.spark.graphx.impl.VertexAttributeBlock")
+      .set("spark.kryo.registrator", "main.scala.Diffusion.DiffKryoRegistrator")
+      .set("spark.local.dir", "/ramdisk/")
+      .set("spark.eventLog.enabled", "false")
+      .set("spark.reducer.maxSizeInFlight", "256m")
+      .set("spark.shuffle.compress", "false")
+      .set("spark.shuffle.file.buffer", "1024k")
+      .set("spark.io.compression.codec", "snappy")
+      .set("spark.memory.fraction", "0.9")
+      .set("spark.speculation", "true")
       .setAppName("PREGEL Min-Sum Diffusion")
       .setMaster(args(2))
     val sc = new SparkContext(conf)
@@ -41,14 +73,16 @@ object DiffusionPregel {
     val gridWidth = scala.io.Source.fromFile("benchmark/" + benchmark + "/lcid.txt").getLines().next().toInt
 
     // create graph structure
-    val graph = GraphLoader.edgeListFile(sc, "benchmark/" + benchmark + "/edgeListFile.txt", false, args(1).toInt).cache()
+    val graph = GraphLoader.edgeListFile(sc, "benchmark/" + benchmark + "/edgeListFile.txt", false, args(1).toInt, StorageLevel.MEMORY_ONLY, StorageLevel.MEMORY_ONLY)
 
     // initialize diffusion data structures
     val noIterPerBndComputation = 24
     val noIter = noIterPerBndComputation
     val conv = 1e-4
-    val boundArray = sc.accumulator[Array[Double]](Array.ofDim[Double](Math.floor((noIter.toDouble - 1) / 2).toInt))(new DoubleArrayAccumulator)
-    val energyArray = sc.accumulator[Array[Double]](Array.ofDim[Double](Math.floor((noIter.toDouble - 1) / 2).toInt))(new DoubleArrayAccumulator)
+
+
+    val boundArray = sc.collectionAccumulator[(Int, Double)]("bound")
+    val energyArray = sc.collectionAccumulator[(Int, Double)]("energy")
 
     // run distributed inference algorithm
     val diffInference = new DiffusionPregel(graph, noLabelsOfEachVertex, unaryPotentials, pwPotentials, gridWidth, boundArray, energyArray, noIter, noIterPerBndComputation, conv)
@@ -56,7 +90,7 @@ object DiffusionPregel {
   }
 }
 
-class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer, boundArray: Accumulator[Array[Double]], energyArray: Accumulator[Array[Double]], noIter: Int, noIterPerBndComputation: Int, conv: Double) extends java.io.Serializable {
+class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix, unaryPotentials: DoubleMatrix, pwPotentials: DoubleMatrix, lastColumnId: Integer, boundArray: CollectionAccumulator[(Int, Double)], energyArray: CollectionAccumulator[(Int, Double)], noIter: Int, noIterPerBndComputation: Int, conv: Double) extends java.io.Serializable {
   if (noIterPerBndComputation % 2 == 1)
     throw new InvalidParameterException("due to the parallelization strategy **noIterPerBndComputation** must be set to any even number")
 
@@ -64,9 +98,6 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
   val t_final = System.currentTimeMillis()
 
   def apply() = {
-
-    var bound = 0.0
-
     // create hashmap of vertex data (unary factors)
     var g_t = scala.collection.mutable.HashMap.empty[Int, DoubleMatrix]
     var sel = 0
@@ -109,15 +140,19 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     println("Graph loaded successfully:")
     println("noEdges: " + graph.numEdges)
     println("noVertices: " + graph.numVertices)
+    DiffusionPregel.noNodes = graph.numVertices.toInt
     val pregelRuns = (Math.ceil(noIter.toDouble / noIterPerBndComputation.toDouble) - 1).toInt
     val initialMessage = mutable.HashMap[Int, DoubleMatrix]()
     val continuationMessage = mutable.HashMap[Int, DoubleMatrix]()
     continuationMessage(-1) = DoubleMatrix.EMPTY
+    preprocessed_graph = preprocessed_graph.partitionBy(LinearPartitioner)
+    println(preprocessed_graph.vertices.count() + "-" + preprocessed_graph.edges.count())
+
     var t_start = System.currentTimeMillis()
 
     for (i <- 0 to pregelRuns) {
       println("chunk " + i + "/" + pregelRuns)
-      preprocessed_graph = preprocessed_graph.cache().pregel(initialMessage, noIterPerBndComputation - 1, EdgeDirection.Out)(vprog, sendMsg, mergeMsg)
+      preprocessed_graph = preprocessed_graph.pregel(initialMessage, noIterPerBndComputation - 1, EdgeDirection.Out)(vprog, sendMsg, mergeMsg)
       // notify pregel that we are about to continue our computations
       // while the next iterations
       if (i == 0) {
@@ -125,10 +160,19 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       }
 
       // compute statistics
-      val bnd: Array[Double] = boundArray.value
-      val en: Array[Double] = energyArray.value
+      val bnd_raw: util.List[(Int, Double)] = boundArray.value
+      val bnd: Array[Double] = Array.ofDim(14)
+      for ((k, v) <- bnd_raw) {
+        bnd(k) += v
+      }
+      val en: Array[Double] = Array.ofDim(14)
+      val en_raw: util.List[(Int, Double)] = energyArray.value
+      for ((k, v) <- en_raw) {
+        en(k) += v
+      }
       var firstZero = bnd.indexOf(0.0)
       var eps = 0.
+
       firstZero match {
         case x if x > 1 => eps = bnd(firstZero - 1) - bnd(firstZero - 2)
         case -1 => {
@@ -138,15 +182,15 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
         case _ => eps = Double.MaxValue
       }
       println("I " + firstZero + " B: " + bnd(firstZero - 1).toString() + " eps: " + eps)
-      println("B " + boundArray.value.toSeq.toString())
-      println("E " + energyArray.value.toSeq.toString())
+      println("B " + bnd.toList.toString())
+      println("E " + en.toList.toString())
 
       //TODO: test if conv bnd reached
 
       if (SHOW_LABELING_IN_ITERATION) {
         val idx = (0 to firstZero - 1).map(f => f.toDouble)
-        val yval = bnd.toList.slice(0, idx.last.toInt + 1)
-        val yval2 = en.toList.slice(0, idx.last.toInt + 1)
+        val yval = bnd.slice(0, idx.last.toInt + 1)
+        val yval2 = en.slice(0, idx.last.toInt + 1)
 
         val visualizer = Figure()
         visualizer.clear()
@@ -192,14 +236,14 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
     //*************************************************
     val lAt = DoubleMatrix.zeros(newData.noLabels)
     if (updateEnergyEstimates(newData.iteration)) {
-      val enArraySz = energyArray.localValue.length
-      val enUpd = Array.ofDim[Double](enArraySz)
-      val bndUpd = Array.ofDim[Double](enArraySz)
+      //val enArraySz = energyArray.
+      //val enUpd = Array.ofDim[Double](enArraySz)
+      //val bndUpd = Array.ofDim[Double](enArraySz)
+      var bndUpd: Double = 0
       val bndUpdIdx = Math.floor((newData.iteration - 1) / 2).toInt
       // GTT PHI UPDATE
       // phi_tt_g_tt = g_tt' + phi_tt' + phi_t't
       for ((neighbourId, phi_tt) <- newData.phi_tt) {
-
         val phi_tt_g_tt = newData.g_tt.addColumnVector(phi_tt).addRowVector(phi_tt_neighbours.getOrElse(neighbourId, DoubleMatrix.zeros(newData.noLabels)))
         data.g_tt_phi(neighbourId) = phi_tt_g_tt
       }
@@ -213,16 +257,15 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
       for ((k, v) <- data.g_tt_phi) {
         val rMin = v.rowMins()
         lAt.addiColumnVector(rMin)
-        bndUpd(bndUpdIdx) += rMin.min()
+        bndUpd += rMin.min()
       }
       // prevent double counting of the same min. pairwise dual factor
       if (isActive) {
-        boundArray += bndUpd
+        boundArray.add(bndUpdIdx, bndUpd)
       }
       val lbl = lAt.argmin()
       newData.labelForEnergyCompuytation = lbl
-      enUpd(bndUpdIdx) += data.g_t.get(lbl)
-      energyArray += enUpd
+      energyArray.add((bndUpdIdx, data.g_t.get(lbl)))
     }
 
     if (isActive == false) {
@@ -302,12 +345,12 @@ class DiffusionPregel(graph: Graph[Int, Int], noLabelsOfEachVertex: DoubleMatrix
 
     // compute primal energy of pairwise factors
     if (updateEnergyEstimates(srcVtx.iteration) == false) {
-      val enArraySz = energyArray.localValue.length
-      val enUpd = Array.ofDim[Double](enArraySz)
+      //val enArraySz = energyArray.localValue.length
+      var enUpd: Double = 0
       val bndUpdIdx = Math.floor((srcVtx.iteration - 1) / 2).toInt - 1
-      if (srcId < dstId && srcVtx.iteration > 2 && (((srcVtx.iteration - 1) % 2) == 0) && (bndUpdIdx < enArraySz)) {
-        enUpd(bndUpdIdx) = dstVtx.g_tt.get(srcVtx.labelForEnergyCompuytation, dstVtx.labelForEnergyCompuytation)
-        energyArray += enUpd
+      if (srcId < dstId && srcVtx.iteration > 2 && (((srcVtx.iteration - 1) % 2) == 0)) {
+        enUpd = dstVtx.g_tt.get(srcVtx.labelForEnergyCompuytation, dstVtx.labelForEnergyCompuytation)
+        energyArray.add((bndUpdIdx, enUpd))
       }
     }
 
