@@ -42,8 +42,8 @@ object DiffusionPregel {
   def main(args: Array[String]): Unit = {
     // toggle debug output
 
-    Logger.getLogger("org").setLevel(Level.OFF)
-    Logger.getLogger("akka").setLevel(Level.OFF)
+    //Logger.getLogger("org").setLevel(Level.OFF)
+    //Logger.getLogger("akka").setLevel(Level.OFF)
 
     val conf = new SparkConf()
       .set("spark.rdd.compress", "true")
@@ -52,13 +52,14 @@ object DiffusionPregel {
       //.set("spark.kryo.registrationRequired","true")
       .set("spark.kryo.classesToRegister", "org.apache.spark.graphx.impl.VertexAttributeBlock")
       .set("spark.kryo.registrator", "main.scala.Diffusion.DiffKryoRegistrator")
-      .set("spark.local.dir", "/ramdisk/")
+  //    .set("spark.local.dir", "/ramdisk/")
       .set("spark.eventLog.enabled", "false")
       .set("spark.reducer.maxSizeInFlight", "256m")
       .set("spark.shuffle.compress", "false")
       .set("spark.shuffle.file.buffer", "1024k")
       .set("spark.io.compression.codec", "snappy")
-      .set("spark.memory.fraction", "0.9")
+      .set("spark.memory.fraction", "0.3")
+      .set("spark.shuffle.memoryFraction","0.6")
       .set("spark.speculation", "true")
       .setAppName("PREGEL Min-Sum Diffusion")
       .setMaster(args(2))

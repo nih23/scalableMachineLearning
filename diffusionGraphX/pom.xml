@@ -99,7 +99,7 @@
                     </descriptorRefs>
                     <archive>
                         <manifest>
-                            <mainClass>main.scala.Diffusion.DiffusionGraphX</mainClass>
+                            <mainClass>main.scala.Diffusion.DiffusionPregel</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
@@ -120,7 +120,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>main.scala.Diffusion.DiffusionGraphX</mainClass>
+                            <mainClass>main.scala.Diffusion.DiffusionPregel</mainClass>
                         </manifest>
                     </archive>
                 </configuration>
