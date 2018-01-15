@@ -16,8 +16,8 @@ double unaryPotential(size_t label)
 }
 
 double pairwisePotential(size_t l1, size_t l2, double lambda)
-{
-   return lambda * abs(static_cast<double>(l1-l2));
+{  
+   return lambda*abs(static_cast<double>(l1)-static_cast<double>(l2));
 }
 
 int main() {
@@ -25,7 +25,7 @@ int main() {
    // each having numberOfLabels many labels
    const size_t numberOfVariables = 40; 
    const size_t numberOfLabels = 5;
-   const double lambda_pairwise = 0.01;
+   const double lambda_pairwise = 0.1;
    Space space(numberOfVariables, numberOfLabels);
 
    // construct a graphical model
